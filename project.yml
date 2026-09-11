@@ -1,0 +1,50 @@
+name: Poplight
+options:
+  bundleIdPrefix: com.startvc
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+packages:
+  PoplightKit:
+    path: Packages/PoplightKit
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    MARKETING_VERSION: "0.1"
+    CURRENT_PROJECT_VERSION: "1"
+    # Sign to run locally: no team needed for a personal Mac app.
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    # Set your Apple Developer team here if you want a real signature:
+    # DEVELOPMENT_TEAM: XXXXXXXXXX
+
+targets:
+  Poplight:
+    type: application
+    platform: macOS
+    sources:
+      - Poplight
+    dependencies:
+      - package: PoplightKit
+    info:
+      path: Poplight/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Poplight
+        LSUIElement: true
+        NSBluetoothAlwaysUsageDescription: Poplight talks to your Poplight lights over Bluetooth.
+        ITSAppUsesNonExemptEncryption: false
+        LSMinimumSystemVersion: "26.0"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.startvc.poplight
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+    scheme:
+      testTargets: []

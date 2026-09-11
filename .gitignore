@@ -1,0 +1,21 @@
+# Xcode / SwiftPM
+*.xcodeproj
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+*.xcworkspace/xcuserdata/
+Package.resolved
+
+# macOS
+.DS_Store
+
+# Captures (keep raw Bluetooth logs out of git; put parsed timelines in captures/)
+*.pklg
+*.btsnoop
+*.pcap
+*.pcapng
+
+# Python
+__pycache__/
+*.pyc
