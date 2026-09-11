@@ -39,12 +39,17 @@ public final class BLEConnection: NSObject, Identifiable {
     public var autoSubscribe = true
 
     @ObservationIgnored private var pendingDiscovery = 0
+    @ObservationIgnored private let persister: LogPersister
+    /// Where this connection's log is being written on disk.
+    public var logFileURL: URL { persister.url }
     @ObservationIgnored private var pendingReads: Set<ObjectIdentifier> = []
 
     init(peripheral: CBPeripheral, name: String?) {
         self.id = peripheral.identifier
         self.peripheral = peripheral
-        self.name = name ?? peripheral.name ?? "(unnamed)"
+        let resolvedName = name ?? peripheral.name ?? "(unnamed)"
+        self.name = resolvedName
+        self.persister = LogPersister(name: resolvedName, id: peripheral.identifier)
         super.init()
         peripheral.delegate = self
     }
@@ -128,8 +133,13 @@ public final class BLEConnection: NSObject, Identifiable {
 
     // MARK: Internals
 
+    private func sink(_ entry: LogEntry) {
+        log.append(entry)
+        persister.append(entry)
+    }
+
     private func append(_ kind: LogEntry.Kind, characteristic: GATTCharacteristic? = nil, data: Data? = nil, message: String? = nil) {
-        log.append(LogEntry(
+        sink(LogEntry(
             kind: kind,
             service: characteristic?.serviceUUID.uuidString,
             characteristic: characteristic?.uuid.uuidString,
@@ -139,7 +149,7 @@ public final class BLEConnection: NSObject, Identifiable {
     }
 
     private func append(_ kind: LogEntry.Kind, cb: CBCharacteristic, data: Data? = nil, message: String? = nil) {
-        log.append(LogEntry(
+        sink(LogEntry(
             kind: kind,
             service: cb.service?.uuid.uuidString,
             characteristic: cb.uuid.uuidString,

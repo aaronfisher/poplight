@@ -20,6 +20,7 @@ struct LogView: View {
                 Button("Copy text") { copy(LogExport.text(filtered)) }
                 Button("Copy JSON") { copy(LogExport.json(filtered)) }
                 Button("Clear") { connection.clearLog() }
+                Button("Show file") { NSWorkspace.shared.activateFileViewerSelecting([connection.logFileURL]) }
             }
             .controlSize(.small)
             .padding(8)

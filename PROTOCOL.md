@@ -9,19 +9,21 @@ capture is analysed; keep it language-neutral so it can be ported.
 |---|---|
 | Product | Poplight rechargeable wall sconce (thepoplight.com) |
 | Official app | iOS `id6484317705`, Android `com.poplight.pop_light`, v1.0.9 |
-| Advertised name | _unknown_ (Lab: check scan list) |
-| Manufacturer data / company id | _unknown_ |
+| Advertised name | `POP_Light` (Lab, 2026-09-10) |
+| Manufacturer data / company id | _unknown_ (check advertisement pane) |
 | Advertised service UUIDs | _unknown_ |
-| Chip / SDK hints (Device Information service) | _unknown_ |
+| Chip / SDK hints | OTA service `02F00000-…-FE00` (chars FF00/FF02/FF03, FF02 reads `ntf_enable`, user description "OTA Response"); same family as Govee H5184 thermometer and Nothing CMF Watch. Vendor not yet identified. |
+| ATT MTU | 23 (max write without response = 20 bytes) |
 | Max simultaneous centrals | _unknown_ (assume 1) |
 
 ## GATT
 
 | Service | Characteristic | Properties | Role |
 |---|---|---|---|
-| _?_ | _?_ | write / write-no-rsp | command channel |
-| _?_ | _?_ | notify | status / responses |
-| 180F? | 2A19? | read, notify | battery level (if standard) |
+| `FFB0` | `FFB1` "Characteristic 3" | write (props TBC) | command channel (assumed) |
+| `FFB0` | `FFB2` "Characteristic 4" | notify | status / responses (assumed) |
+| `02F00000-…-FE00` | `FF00`, `FF02`, `FF03` | | firmware OTA, leave alone |
+| 180F | 2A19 | | **not present** – battery must come via FFB2 |
 
 ## Connection / handshake
 

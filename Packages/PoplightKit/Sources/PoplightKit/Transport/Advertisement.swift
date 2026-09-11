@@ -86,6 +86,7 @@ public struct DiscoveredPeripheral: Identifiable {
     }
 
     public var looksLikePoplight: Bool {
-        displayName.localizedCaseInsensitiveContains("pop")
+        displayName.localizedCaseInsensitiveContains(PoplightProtocol.advertisedNameHint)
+            || displayName.localizedCaseInsensitiveContains("poplight")
     }
 }

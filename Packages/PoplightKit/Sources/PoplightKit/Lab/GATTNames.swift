@@ -26,6 +26,8 @@ public enum GATTNames {
         "AE00": "Vendor (AE00, common LED controllers)",
         "00010203-0405-0607-0809-0A0B0C0D1910": "Telink mesh",
         "0000FEE7-0000-1000-8000-00805F9B34FB": "Tencent WeChat",
+        "FFB0": "Poplight control (vendor FFB0)",
+        "02F00000-0000-0000-0000-00000000FE00": "Chip vendor OTA",
     ]
 
     nonisolated static let characteristics: [String: String] = [
@@ -61,6 +63,11 @@ public enum GATTNames {
         "00010203-0405-0607-0809-0A0B0C0D1912": "Telink command",
         "00010203-0405-0607-0809-0A0B0C0D1913": "Telink OTA",
         "00010203-0405-0607-0809-0A0B0C0D1914": "Telink pair",
+        "FFB1": "Poplight command (write, \"Characteristic 3\")",
+        "FFB2": "Poplight status (notify, \"Characteristic 4\")",
+        "02F00000-0000-0000-0000-00000000FF00": "OTA data",
+        "02F00000-0000-0000-0000-00000000FF02": "OTA response",
+        "02F00000-0000-0000-0000-00000000FF03": "OTA control",
     ]
 
     nonisolated static let descriptors: [String: String] = [

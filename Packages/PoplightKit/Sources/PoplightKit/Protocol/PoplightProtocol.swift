@@ -40,14 +40,16 @@ nonisolated public enum PoplightCommand: Equatable, Sendable {
 /// Byte-level codec. UUIDs and encodings are placeholders until the capture is decoded.
 nonisolated public enum PoplightProtocol {
     /// Advertised name prefix used to recognise a Poplight while scanning. Refine after Phase 2.
-    public static let advertisedNameHint = "pop"
+    public static let advertisedNameHint = "POP_Light"
 
     /// GATT UUIDs, as strings so this file stays free of CoreBluetooth.
-    public static var serviceUUID: String? { nil }
-    public static var commandCharacteristicUUID: String? { nil }
-    public static var statusCharacteristicUUID: String? { nil }
+    /// Observed 2026-09-10 in the Lab; roles are the working assumption until the capture confirms them.
+    public static let serviceUUID = "FFB0"
+    public static let commandCharacteristicUUID = "FFB1"   // "Characteristic 3", write
+    public static let statusCharacteristicUUID = "FFB2"    // "Characteristic 4", notify
 
-    public static let isKnown = commandCharacteristicUUID != nil
+    /// Flip to true once `encode`/`decodeStatus` are implemented from the capture.
+    public static let isKnown = false
 
     public static func encode(_ command: PoplightCommand) -> Data? {
         // TODO(Phase 2): fill in from the capture.
