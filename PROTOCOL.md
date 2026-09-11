@@ -16,6 +16,17 @@ capture is analysed; keep it language-neutral so it can be ported.
 | ATT MTU | 23 (max write without response = 20 bytes) |
 | Max simultaneous centrals | _unknown_ (assume 1) |
 
+## Official app internals (from strings in the unencrypted Flutter `App.framework`, v1.0.8/1.0.9)
+
+- Flutter 3.11.1 app, BLE via `flutter_blue_plus`; also Firebase, OneSignal, sqflite.
+- Talks only to service `FFB0`, writes `FFB1`, subscribes `FFB2` (`ffb1`/`ffb2` literals present),
+  plus the standard CCCD `2902`.
+- Local DB row per light: `isOn`, `brightness`, `glow` (= colour warmth), `timer`, `colorid`.
+- Debug strings: `15 cmd send`, `Write error ch in warmth`, `Error getting battery level:`,
+  `indivBtrlvl`, `Error turning notifier off`, `with_msd`. Commands are built from number lists,
+  so the byte formats are **not** recoverable from strings; a capture is required.
+- Screens: adjust settings (brightness/warmth/timer), groups, rename/remove, battery status.
+
 ## GATT
 
 | Service | Characteristic | Properties | Role |
