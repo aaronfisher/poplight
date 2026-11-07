@@ -1,7 +1,7 @@
 # Poplight BLE protocol
 
-Status: **not yet decoded**. This file is the single source of truth once the Phase 2
-capture is analysed; keep it language-neutral so it can be ported.
+Status: **decoded 2026-11-06** from the official Flutter app (v1.0.8) with the Blutter Dart AOT
+decompiler; confirmed on hardware where marked. Keep this file language-neutral so it can be ported.
 
 ## Device
 
@@ -31,35 +31,39 @@ capture is analysed; keep it language-neutral so it can be ported.
 
 | Service | Characteristic | Properties | Role |
 |---|---|---|---|
-| `FFB0` | `FFB1` "Characteristic 3" | write (props TBC) | command channel (assumed) |
-| `FFB0` | `FFB2` "Characteristic 4" | notify | status / responses (assumed) |
+| `FFB0` | `FFB1` "Characteristic 3" | write, write-no-rsp | command channel |
+| `FFB0` | `FFB2` "Characteristic 4" | write, write-no-rsp, notify | replies (battery) |
 | `02F00000-…-FE00` | `FF00`, `FF02`, `FF03` | | firmware OTA, leave alone |
 | 180F | 2A19 | | **not present** – battery must come via FFB2 |
 
 ## Connection / handshake
 
-Does the light require any write before it accepts commands (auth, "sync", key)?
-_unknown_
+None. Connect, discover, subscribe to `FFB2` notifications, write to `FFB1`. No auth, no key,
+no checksum, no length byte. ATT MTU 23, so every command fits one packet.
 
 ## Commands (central → light)
 
-| Action | Bytes | Notes |
+| Action | Bytes (hex) | Notes |
 |---|---|---|
-| Power on | | |
-| Power off | | |
-| Brightness `n` (0–100) | | |
-| Color temperature warm / neutral / cool | | |
-| Sleep timer set `m` minutes | | |
-| Sleep timer cancel | | |
-| Query status / battery | | |
+| Power on | `01 01 01` | written with response |
+| Power off | `01 01 00` | |
+| Brightness `n` | `01 02 n` | `n` = 1…99; the app clamps 100 → 99 and rejects 0; written without response |
+| Warmth warm / neutral / cool | `01 06 00` / `01 06 01` / `01 06 02` | label ↔ value mapping to confirm on hardware |
+| Sleep timer `m` minutes | `02 03 00 idx` | `idx = m / 15`, 1…48 (15 min … 12 h); idx 0 is rejected ("Invalid Time") |
+| Sleep timer cancel | _none known_ | the official app has no cancel; power-cycling clears it (to verify) |
+| Query battery | `01 09 00` | written with response; reply arrives on `FFB2` |
+| Unknown | `01 10 00` | sent by the app just before a power command in one flow; purpose TBD |
 
 ## Status (light → central)
 
 | Message | Bytes | Fields |
 |---|---|---|
-| | | |
+| Battery reply | `01 09 raw` | `raw` → percent: 80→100, 60→75, 40→50, 20→25, anything else passed through |
+
+The light does **not** push state changes on its own (pressing the physical button produced no
+notification), so on/off, brightness and warmth must be tracked client-side.
 
 ## Quirks
 
-- Grouping in the official app: app-side fan-out or written to the lights? _unknown_
+- Grouping in the official app is app-side fan-out (each light gets its own write).
 - Reconnect behaviour, advertising while connected, sleep/timeout: _unknown_

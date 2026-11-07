@@ -17,6 +17,9 @@ public final class PoplightLight: Identifiable {
 
     @ObservationIgnored private let manager: BLEManager
     @ObservationIgnored private var reconnectTask: Task<Void, Never>?
+    @ObservationIgnored private var pollTask: Task<Void, Never>?
+    /// How often to ask the light for its battery level while connected.
+    public var batteryPollInterval: Duration = .seconds(120)
     @ObservationIgnored private let commandUUID = CBUUID(string: PoplightProtocol.commandCharacteristicUUID)
     @ObservationIgnored private let statusUUID = CBUUID(string: PoplightProtocol.statusCharacteristicUUID)
 
@@ -65,6 +68,8 @@ public final class PoplightLight: Identifiable {
         autoReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
+        pollTask?.cancel()
+        pollTask = nil
         manager.disconnect(id)
     }
 
@@ -80,11 +85,24 @@ public final class PoplightLight: Identifiable {
         switch status {
         case .ready:
             lastError = commandCharacteristic == nil ? "This device has no \(PoplightProtocol.commandCharacteristicUUID) characteristic" : nil
-            if PoplightProtocol.isKnown { send(.queryStatus) }
+            startPolling()
         case .disconnected:
+            pollTask?.cancel()
+            pollTask = nil
             if autoReconnect { scheduleReconnect(after: 3) }
         default:
             break
+        }
+    }
+
+    private func startPolling() {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.isReady else { return }
+                self.send(.queryStatus)
+                try? await Task.sleep(for: self.batteryPollInterval)
+            }
         }
     }
 
@@ -106,7 +124,7 @@ public final class PoplightLight: Identifiable {
 
     public func send(_ command: PoplightCommand) {
         guard let data = PoplightProtocol.encode(command) else {
-            lastError = "Protocol not decoded yet"
+            lastError = "The light has no command for that yet"
             return
         }
         guard let connection, let characteristic = commandCharacteristic, connection.status == .ready else {
@@ -114,7 +132,8 @@ public final class PoplightLight: Identifiable {
             return
         }
         lastError = nil
-        connection.write(data, to: characteristic, withResponse: !characteristic.canWriteWithoutResponse)
+        let withResponse = PoplightProtocol.wantsResponse(command) ? characteristic.canWrite : !characteristic.canWriteWithoutResponse
+        connection.write(data, to: characteristic, withResponse: withResponse)
         state.apply(command)
     }
 

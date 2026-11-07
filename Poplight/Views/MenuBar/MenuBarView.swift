@@ -49,7 +49,7 @@ struct MenuBarView: View {
 
 private struct CompactLightRow: View {
     let light: PoplightLight
-    @State private var brightness: Double = 100
+    @State private var brightness: Double = 99
 
     private var enabled: Bool { light.isReady && PoplightProtocol.isKnown }
 
@@ -70,7 +70,7 @@ private struct CompactLightRow: View {
                     .labelsHidden()
                     .disabled(!enabled)
             }
-            Slider(value: $brightness, in: 1...100, step: 1) { editing in
+            Slider(value: $brightness, in: 1...99, step: 1) { editing in
                 if !editing { light.setBrightness(Int(brightness)) }
             }
             .controlSize(.small)

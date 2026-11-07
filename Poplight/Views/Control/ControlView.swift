@@ -82,7 +82,7 @@ struct ProtocolBanner: View {
 struct LightCard: View {
     @Environment(LightStore.self) private var store
     let light: PoplightLight
-    @State private var brightness: Double = 100
+    @State private var brightness: Double = 99
     @State private var isRenaming = false
     @State private var newName = ""
 
@@ -120,7 +120,7 @@ struct LightCard: View {
 
             HStack(spacing: 10) {
                 Image(systemName: "sun.min")
-                Slider(value: $brightness, in: 1...100, step: 1) { editing in
+                Slider(value: $brightness, in: 1...99, step: 1) { editing in
                     if !editing { light.setBrightness(Int(brightness)) }
                 }
                 Image(systemName: "sun.max")
@@ -146,8 +146,7 @@ struct LightCard: View {
                 Spacer()
 
                 Menu {
-                    Button("Off") { light.setSleepTimer(minutes: nil) }
-                    ForEach([15, 30, 60, 120], id: \.self) { minutes in
+                    ForEach([15, 30, 45, 60, 120, 240], id: \.self) { minutes in
                         Button("\(minutes) min") { light.setSleepTimer(minutes: minutes) }
                     }
                 } label: {
