@@ -45,23 +45,36 @@ no checksum, no length byte. ATT MTU 23, so every command fits one packet.
 
 | Action | Bytes (hex) | Notes |
 |---|---|---|
-| Power on | `01 01 01` | written with response |
+| Power on | `01 01 01` | |
 | Power off | `01 01 00` | |
-| Brightness `n` | `01 02 n` | `n` = 1…99; the app clamps 100 → 99 and rejects 0; written without response |
-| Warmth warm / neutral / cool | `01 06 00` / `01 06 01` / `01 06 02` | label ↔ value mapping to confirm on hardware |
+| Brightness `n` | `01 02 n` | `n` = 1…99; the app clamps 100 → 99 and rejects 0 |
+| Warmth cool / neutral / warm | `01 06 00` / `01 06 01` / `01 06 02` | mapping from the app's widget build order; confirm on hardware |
 | Sleep timer `m` minutes | `02 03 00 idx` | `idx = m / 15`, 1…48 (15 min … 12 h); idx 0 is rejected ("Invalid Time") |
 | Sleep timer cancel | _none known_ | the official app has no cancel; power-cycling clears it (to verify) |
-| Query battery | `01 09 00` | written with response; reply arrives on `FFB2` |
-| Unknown | `01 10 00` | sent by the app just before a power command in one flow; purpose TBD |
+| Query battery | `01 09 00` | the only command written *with* response; reply arrives on `FFB2` |
+| Unknown | `01 10 00` | one of the app's two power handlers sends it right before `01 01 x`; the other does not. Purpose unknown; not needed |
+
+All commands except the battery query are written **without response** (the app uses the
+characteristic's `writeWithoutResponse` property). The app never reads any characteristic.
+Groups are app-side: the same bytes are written to each selected light in turn.
 
 ## Status (light → central)
 
 | Message | Bytes | Fields |
 |---|---|---|
-| Battery reply | `01 09 raw` | `raw` → percent: 80→100, 60→75, 40→50, 20→25, anything else passed through |
+| Battery reply | `01 09 raw` | confirmed on hardware (`01 09 50` = raw 80 = 100%). The app only inspects byte 2; `raw` → percent: 80→100, 60→75, 40→50, 20→25, anything else passed through |
 
 The light does **not** push state changes on its own (pressing the physical button produced no
 notification), so on/off, brightness and warmth must be tracked client-side.
+
+## Source of truth
+
+Recovered with [Blutter](https://github.com/worawit/blutter) from the unencrypted
+`App.framework` of the Mac-installed iOS app (Flutter 3.11.1 / Dart 3.11.1). Blutter needed
+three local patches for iOS Mach-O input on Dart 3.11; the key pseudo-code lives in
+`screens/adjust_settings/adjust.dart` (`Brightness.setBright`, `setTime`) and
+`screens/adjust_settings/adjust_settings_home.dart` (warmth/power/timer closures,
+`_BatteryState.getBatteryState`, `mapBatteryPercentage`).
 
 ## Quirks
 

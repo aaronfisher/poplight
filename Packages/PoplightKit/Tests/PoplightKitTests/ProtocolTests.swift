@@ -13,14 +13,15 @@ import Testing
         #expect(PoplightProtocol.encode(.brightness(100)) == Data([1, 2, 99]))
         #expect(PoplightProtocol.encode(.brightness(0)) == Data([1, 2, 1]))
         #expect(PoplightProtocol.wantsResponse(.brightness(10)) == false)
-        #expect(PoplightProtocol.wantsResponse(.power(true)) == true)
+        #expect(PoplightProtocol.wantsResponse(.power(true)) == false)
+        #expect(PoplightProtocol.wantsResponse(.queryStatus) == true)
     }
 
     @Test func warmth() {
-        #expect(PoplightProtocol.encode(.colorTemperature(.warm)) == Data([1, 6, 0]))
+        #expect(PoplightProtocol.encode(.colorTemperature(.cool)) == Data([1, 6, 0]))
         #expect(PoplightProtocol.encode(.colorTemperature(.neutral)) == Data([1, 6, 1]))
-        #expect(PoplightProtocol.encode(.colorTemperature(.cool)) == Data([1, 6, 2]))
-        #expect(PoplightColorTemperature(wireValue: 2) == .cool)
+        #expect(PoplightProtocol.encode(.colorTemperature(.warm)) == Data([1, 6, 2]))
+        #expect(PoplightColorTemperature(wireValue: 2) == .warm)
         #expect(PoplightColorTemperature(wireValue: 7) == nil)
     }
 

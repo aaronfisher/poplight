@@ -13,17 +13,17 @@ nonisolated public enum PoplightColorTemperature: String, CaseIterable, Sendable
     /// Wire value used by the warmth command `[1, 6, value]`.
     public var wireValue: UInt8 {
         switch self {
-        case .warm: 0
+        case .cool: 0
         case .neutral: 1
-        case .cool: 2
+        case .warm: 2
         }
     }
 
     public init?(wireValue: UInt8) {
         switch wireValue {
-        case 0: self = .warm
+        case 0: self = .cool
         case 1: self = .neutral
-        case 2: self = .cool
+        case 2: self = .warm
         default: return nil
         }
     }
@@ -130,10 +130,11 @@ nonisolated public enum PoplightProtocol {
         }
     }
 
-    /// Whether the official app writes this command with a response (the slider uses write-without-response).
+    /// The official app writes everything without response when the characteristic allows it,
+    /// except the battery query, which it writes with response before listening on FFB2.
     public static func wantsResponse(_ command: PoplightCommand) -> Bool {
-        if case .brightness = command { return false }
-        return true
+        if case .queryStatus = command { return true }
+        return false
     }
 
     /// Battery bytes → percentage, as the official app does it (`mapBatteryPercentage`).
