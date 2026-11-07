@@ -58,8 +58,9 @@ public final class PoplightLight: Identifiable {
         lastError = nil
         if let c = manager.connect(id) {
             attach(c)
-        } else if manager.state == .poweredOn, manager.connections[id] == nil {
-            // Manager is scanning for it; it will appear in `connections` once found.
+        } else {
+            // Deferred (Bluetooth not on yet) or the manager is scanning for it:
+            // poll until the connection object exists, then attach to it.
             scheduleReconnect(after: 2)
         }
     }
@@ -111,7 +112,10 @@ public final class PoplightLight: Identifiable {
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(seconds))
             guard !Task.isCancelled, let self, self.autoReconnect else { return }
-            if let c = self.manager.connections[self.id] { self.attach(c) }
+            if let c = self.manager.connections[self.id] {
+                self.attach(c)
+                if c.status.isConnected || c.status == .connecting { return }
+            }
             self.connect()
         }
     }
