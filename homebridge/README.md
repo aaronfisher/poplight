@@ -63,8 +63,18 @@ cd homebridge && npm install && npm run build && npm link
   the threshold. Turn on notifications for it in Home to get a push alert, or use it in
   automations. Turning either option off removes the tiles on the next restart.
 
-Running on a Synology NAS with a USB dongle is possible but unsupported by Synology; see
-[docs/synology.md](docs/synology.md) before buying a dongle.
+**Raspberry Pi (Zero 2 W or newer) in one step**, on a fresh Raspberry Pi OS Lite with SSH:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/aaronfisher/poplight/main/homebridge/scripts/pi-install.sh | sudo bash
+```
+
+It installs Homebridge, builds and installs this plugin, grants Node raw Bluetooth access,
+stops `bluetoothd` so the HCI binding owns the adapter, and adds the Poplight platform to
+`config.json`. Re-run it to update. Then open `http://<pi>:8581` and pair the bridge in Home.
+
+Running on a Synology NAS with a USB dongle is possible in theory but blocked in practice on
+most models (no Bluetooth kernel modules); see [docs/synology.md](docs/synology.md).
 
 ## Notes
 

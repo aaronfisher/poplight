@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# One-shot setup of homebridge-poplight on a Raspberry Pi (Zero 2 W or newer) running
+# Raspberry Pi OS Lite. Installs Homebridge (official apt repo) if missing, builds this plugin
+# from the repo, installs it into Homebridge, grants Node raw Bluetooth access, frees the
+# adapter from bluetoothd, and adds the Poplight platform to config.json.
+#
+#   curl -fsSL https://raw.githubusercontent.com/aaronfisher/poplight/main/homebridge/scripts/pi-install.sh | sudo bash
+# or, from a clone:   sudo ./scripts/pi-install.sh
+set -euo pipefail
+
+REPO_URL=${REPO_URL:-https://github.com/aaronfisher/poplight.git}
+SRC_DIR=${SRC_DIR:-/opt/poplight}
+HB_DIR=/var/lib/homebridge
+HB_NODE=/opt/homebridge/bin/node
+HB_NPM=/opt/homebridge/bin/npm
+
+if [[ $EUID -ne 0 ]]; then
+  echo "run with sudo" >&2
+  exit 1
+fi
+
+arch=$(uname -m)
+if [[ "$arch" == armv6l ]]; then
+  echo "This is an ARMv6 Pi (original Zero/Zero W). Homebridge no longer supports it; use a Zero 2 W or newer." >&2
+  exit 1
+fi
+
+echo "==> apt packages"
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl build-essential python3 bluez >/dev/null
+
+if [[ ! -x "$HB_NODE" ]]; then
+  echo "==> installing Homebridge from repo.homebridge.io"
+  curl -sSfL https://repo.homebridge.io/KEY.gpg | gpg --dearmor | tee /usr/share/keyrings/homebridge.gpg >/dev/null
+  echo "deb [signed-by=/usr/share/keyrings/homebridge.gpg] https://repo.homebridge.io stable main" >/etc/apt/sources.list.d/homebridge.list
+  apt-get update -qq
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq homebridge >/dev/null
+fi
+echo "    Homebridge node: $($HB_NODE --version)"
+
+echo "==> fetching plugin source into $SRC_DIR"
+if [[ -d "$SRC_DIR/.git" ]]; then
+  git -C "$SRC_DIR" pull -q
+else
+  git clone -q "$REPO_URL" "$SRC_DIR"
+fi
+
+echo "==> building plugin"
+cd "$SRC_DIR/homebridge"
+PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" install --silent --no-audit --no-fund
+PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" run build --silent
+tarball=$(PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" pack --silent | tail -1)
+
+echo "==> installing $tarball into Homebridge"
+cd "$HB_DIR"
+PATH="/opt/homebridge/bin:$PATH" sudo -u homebridge -E "$HB_NPM" install --silent --no-audit --no-fund --save "$SRC_DIR/homebridge/$tarball"
+rm -f "$SRC_DIR/homebridge/$tarball"
+
+echo "==> Bluetooth: raw HCI access for Node, adapter released from bluetoothd"
+setcap cap_net_raw,cap_net_admin+eip "$(readlink -f "$HB_NODE")"
+systemctl disable --now bluetooth >/dev/null 2>&1 || true
+rfkill unblock bluetooth 2>/dev/null || true
+hciconfig hci0 up 2>/dev/null || true
+
+echo "==> config.json platform block"
+"$HB_NODE" - "$HB_DIR/config.json" <<'JS'
+const fs = require('fs');
+const path = process.argv[2];
+const config = JSON.parse(fs.readFileSync(path, 'utf8'));
+config.platforms ??= [];
+if (!config.platforms.some((p) => p.platform === 'Poplight')) {
+  config.platforms.push({
+    platform: 'Poplight',
+    autoDiscover: true,
+    batteryPollMinutes: 5,
+    lowBatteryThreshold: 25,
+    batterySensor: true,
+    lowBatterySensor: true,
+    bindings: 'hci',
+  });
+  fs.writeFileSync(path, JSON.stringify(config, null, 4) + '\n');
+  console.log('    added Poplight platform');
+} else {
+  console.log('    Poplight platform already present');
+}
+JS
+chown homebridge:homebridge "$HB_DIR/config.json"
+
+echo "==> restarting Homebridge"
+hb-service restart >/dev/null
+
+ip=$(hostname -I | awk '{print $1}')
+echo
+echo "Done. Homebridge UI: http://$ip:8581  (first login creates the admin user)"
+echo "Pair the bridge in the Home app with the QR code shown on the UI's dashboard."
+echo "Logs: hb-service logs   |   update plugin later: sudo $SRC_DIR/homebridge/scripts/pi-install.sh"
