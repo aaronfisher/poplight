@@ -57,8 +57,16 @@ cd "$HB_DIR"
 sudo -u homebridge env PATH="/opt/homebridge/bin:$PATH" HOME="$HB_DIR" "$HB_NPM" install --silent --no-audit --no-fund --save "$SRC_DIR/homebridge/$tarball"
 rm -f "$SRC_DIR/homebridge/$tarball"
 
-echo "==> Bluetooth: raw HCI access for Node, adapter released from bluetoothd"
-setcap cap_net_raw,cap_net_admin+eip "$(readlink -f "$HB_NODE")"
+echo "==> Bluetooth: raw HCI access for the Homebridge service, adapter released from bluetoothd"
+# File capabilities on the node binary get wiped by hb-service's ownership reset on every start,
+# so grant the capabilities to the service via systemd instead (ambient caps are inherited by node).
+mkdir -p /etc/systemd/system/homebridge.service.d
+cat >/etc/systemd/system/homebridge.service.d/bluetooth.conf <<'UNIT'
+[Service]
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
+UNIT
+systemctl daemon-reload
 systemctl disable --now bluetooth >/dev/null 2>&1 || true
 rfkill unblock bluetooth 2>/dev/null || true
 hciconfig hci0 up 2>/dev/null || true
