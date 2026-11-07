@@ -48,11 +48,11 @@ export class PoplightAccessory {
       .setProps({ minValue: 0, maxValue: 100, minStep: 1 })
       .onGet(() => ctx.brightness ?? 99)
       .onSet((v) => this.setBrightness(v));
-    this.light
-      .getCharacteristic(Characteristic.ColorTemperature)
-      .setProps({ minValue: WARMTH_MIREDS.cool, maxValue: WARMTH_MIREDS.warm })
-      .onGet(() => WARMTH_MIREDS[ctx.warmth ?? 'neutral'])
-      .onSet((v) => this.setColorTemperature(v));
+    const colorTemperature = this.light.getCharacteristic(Characteristic.ColorTemperature);
+    colorTemperature.setProps({ minValue: WARMTH_MIREDS.cool, maxValue: WARMTH_MIREDS.warm });
+    // HAP's default (140 mireds) sits below our minimum; seed a legal value before HomeKit reads it.
+    colorTemperature.updateValue(WARMTH_MIREDS[ctx.warmth ?? 'neutral']);
+    colorTemperature.onGet(() => WARMTH_MIREDS[ctx.warmth ?? 'neutral']).onSet((v) => this.setColorTemperature(v));
 
     this.battery = accessory.getService(Service.Battery) ?? accessory.addService(Service.Battery);
     this.battery.getCharacteristic(Characteristic.BatteryLevel).onGet(() => ctx.battery ?? 100);
