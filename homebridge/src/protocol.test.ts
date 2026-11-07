@@ -50,8 +50,16 @@ test('battery', () => {
   assert.deepEqual(decodeStatus(Buffer.from([1, 9, 80])), { batteryPercent: 100, batteryRaw: 80 });
   assert.equal(decodeStatus(Buffer.from([1, 9, 60]))?.batteryPercent, 75);
   assert.equal(decodeStatus(Buffer.from([1, 9, 73]))?.batteryPercent, 73);
-  assert.equal(decodeStatus(Buffer.from([1, 2, 50])), undefined);
   assert.equal(decodeStatus(Buffer.from([1])), undefined);
+  assert.equal(decodeStatus(Buffer.from([2, 3, 0, 2])), undefined);
+});
+
+test('command echoes', () => {
+  assert.deepEqual(decodeStatus(Buffer.from([1, 1, 1])), { on: true });
+  assert.deepEqual(decodeStatus(Buffer.from([1, 1, 0])), { on: false });
+  assert.deepEqual(decodeStatus(Buffer.from([1, 2, 50])), { brightness: 50 });
+  assert.deepEqual(decodeStatus(Buffer.from([1, 6, 2])), { warmth: 'warm' });
+  assert.equal(decodeStatus(Buffer.from([1, 6, 9])), undefined);
   assert.equal(batteryPercent(20), 25);
 });
 

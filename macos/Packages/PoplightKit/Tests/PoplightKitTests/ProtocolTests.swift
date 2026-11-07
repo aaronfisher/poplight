@@ -41,8 +41,16 @@ import Testing
         #expect(PoplightProtocol.decodeStatus(Data([1, 9, 40]))?.batteryPercent == 50)
         #expect(PoplightProtocol.decodeStatus(Data([1, 9, 20]))?.batteryPercent == 25)
         #expect(PoplightProtocol.decodeStatus(Data([1, 9, 73]))?.batteryPercent == 73)
-        #expect(PoplightProtocol.decodeStatus(Data([1, 2, 50])) == nil)
         #expect(PoplightProtocol.decodeStatus(Data([1])) == nil)
+        #expect(PoplightProtocol.decodeStatus(Data([2, 3, 0, 2])) == nil)
+    }
+
+    @Test func commandEchoes() {
+        #expect(PoplightProtocol.decodeStatus(Data([1, 1, 1])) == PoplightState(isOn: true))
+        #expect(PoplightProtocol.decodeStatus(Data([1, 1, 0])) == PoplightState(isOn: false))
+        #expect(PoplightProtocol.decodeStatus(Data([1, 2, 50])) == PoplightState(isOn: true, brightness: 50))
+        #expect(PoplightProtocol.decodeStatus(Data([1, 6, 2])) == PoplightState(colorTemperature: .warm))
+        #expect(PoplightProtocol.decodeStatus(Data([1, 6, 9])) == nil)
     }
 
     @Test func stateApply() {

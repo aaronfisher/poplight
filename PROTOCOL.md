@@ -62,10 +62,11 @@ Groups are app-side: the same bytes are written to each selected light in turn.
 
 | Message | Bytes | Fields |
 |---|---|---|
-| Battery reply | `01 09 raw` | confirmed on hardware (`01 09 50` = raw 80 = 100%). The app only inspects byte 2; `raw` → percent: 80→100, 60→75, 40→50, 20→25, anything else passed through |
+| Command echo | `01 01 x`, `01 02 n`, `01 06 v` | the light echoes every accepted command back on `FFB2` (seen on hardware 2026-11-06). Useful as an acknowledgement and to confirm state |
+| Battery reply | `01 09 raw` | confirmed on hardware (`01 09 50` = raw 80 = 100%, `01 09 3c` = 75%). The official app only inspects byte 2; `raw` → percent: 80→100, 60→75, 40→50, 20→25, anything else passed through |
 
-The light does **not** push state changes on its own (pressing the physical button produced no
-notification), so on/off, brightness and warmth must be tracked client-side.
+The light does **not** push state changes it makes on its own (pressing the physical button
+produced no notification), so state after a button press must still be assumed client-side.
 
 ## Source of truth
 

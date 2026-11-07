@@ -23,6 +23,9 @@ export type Command =
   | { type: 'queryStatus' };
 
 export interface Status {
+  on?: boolean;
+  brightness?: number;
+  warmth?: Warmth;
   batteryPercent?: number;
   batteryRaw?: number;
 }
@@ -93,16 +96,30 @@ export function batteryPercent(raw: number): number {
   }
 }
 
-/** Parse an FFB2 notification. Only the battery reply `01 09 raw` is understood. */
+/**
+ * Parse an FFB2 notification. The light echoes every accepted command back on FFB2
+ * (`01 01 x`, `01 02 n`, `01 06 v`), and answers the battery query with `01 09 raw`.
+ */
 export function decodeStatus(data: Buffer | Uint8Array): Status | undefined {
-  if (data.length < 3) {
+  if (data.length < 3 || data[0] !== 0x01) {
     return undefined;
   }
-  if (data[0] === 0x01 && data[1] === 0x09) {
-    const raw = data[2];
-    return { batteryPercent: batteryPercent(raw), batteryRaw: raw };
+  switch (data[1]) {
+    case 0x01:
+      return { on: data[2] === 0x01 };
+    case 0x02:
+      return { brightness: data[2] };
+    case 0x06: {
+      const warmth = warmthFromWire(data[2]);
+      return warmth ? { warmth } : undefined;
+    }
+    case 0x09: {
+      const raw = data[2];
+      return { batteryPercent: batteryPercent(raw), batteryRaw: raw };
+    }
+    default:
+      return undefined;
   }
-  return undefined;
 }
 
 /** HomeKit colour temperature (mireds) ↔ the light's three warmth steps. */

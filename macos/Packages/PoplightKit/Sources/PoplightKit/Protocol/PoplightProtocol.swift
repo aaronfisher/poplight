@@ -148,14 +148,24 @@ nonisolated public enum PoplightProtocol {
         }
     }
 
-    /// Parses a notification from `FFB2`. Only the battery reply `[1, 9, level]` is understood so far.
+    /// Parses a notification from `FFB2`. The light echoes every accepted command
+    /// (`01 01 x`, `01 02 n`, `01 06 v`) and answers the battery query with `01 09 raw`.
     public static func decodeStatus(_ data: Data) -> PoplightState? {
         let bytes = [UInt8](data)
-        guard bytes.count >= 3 else { return nil }
-        if bytes[0] == 0x01, bytes[1] == 0x09 {
+        guard bytes.count >= 3, bytes[0] == 0x01 else { return nil }
+        switch bytes[1] {
+        case 0x01:
+            return PoplightState(isOn: bytes[2] == 0x01)
+        case 0x02:
+            return PoplightState(isOn: true, brightness: Int(bytes[2]))
+        case 0x06:
+            guard let t = PoplightColorTemperature(wireValue: bytes[2]) else { return nil }
+            return PoplightState(colorTemperature: t)
+        case 0x09:
             let raw = Int(bytes[2])
             return PoplightState(batteryPercent: batteryPercent(raw: raw), batteryRaw: raw)
+        default:
+            return nil
         }
-        return nil
     }
 }

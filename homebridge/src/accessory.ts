@@ -164,16 +164,33 @@ export class PoplightAccessory {
 
   private handleStatus(data: Buffer): void {
     const status = decodeStatus(data);
-    if (!status || status.batteryPercent === undefined) {
+    if (!status) {
       this.log.debug(`${this.name}: unknown status ${data.toString('hex')}`);
       return;
     }
     const ctx = this.accessory.context;
+    const { Characteristic } = this.hap;
+    // The light echoes accepted commands; treat them as confirmed state.
+    if (status.on !== undefined) {
+      ctx.on = status.on;
+      this.light.updateCharacteristic(Characteristic.On, status.on);
+    }
+    if (status.brightness !== undefined) {
+      ctx.brightness = status.brightness;
+      ctx.on = true;
+      this.light.updateCharacteristic(Characteristic.Brightness, status.brightness);
+    }
+    if (status.warmth !== undefined) {
+      ctx.warmth = status.warmth;
+      this.light.updateCharacteristic(Characteristic.ColorTemperature, WARMTH_MIREDS[status.warmth]);
+    }
+    if (status.batteryPercent === undefined) {
+      return;
+    }
     if (ctx.battery !== status.batteryPercent) {
       this.log.info(`${this.name}: battery ${status.batteryPercent}%`);
     }
     ctx.battery = status.batteryPercent;
-    const { Characteristic } = this.hap;
     this.battery.updateCharacteristic(Characteristic.BatteryLevel, status.batteryPercent);
     this.battery.updateCharacteristic(
       Characteristic.StatusLowBattery,
