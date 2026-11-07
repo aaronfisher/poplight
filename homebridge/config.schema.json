@@ -1,0 +1,45 @@
+{
+  "pluginAlias": "Poplight",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Controls Poplight Bluetooth wall sconces directly over BLE. Quit the official Poplight app (and the Poplight Mac app) while Homebridge is running: each light accepts a single connection.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "autoDiscover": {
+        "title": "Auto-discover lights",
+        "description": "Add every light advertising as POP_Light that comes into range.",
+        "type": "boolean",
+        "default": true
+      },
+      "batteryPollMinutes": {
+        "title": "Battery poll interval (minutes)",
+        "type": "integer",
+        "default": 5,
+        "minimum": 1,
+        "maximum": 120
+      },
+      "lights": {
+        "title": "Lights",
+        "description": "Optional names for specific lights. With auto-discover off, only these lights are added.",
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "title": "Peripheral id",
+              "description": "As logged by the plugin when the light is discovered (UUID on macOS, MAC address on Linux).",
+              "type": "string",
+              "required": true
+            },
+            "name": {
+              "title": "Name",
+              "type": "string",
+              "required": true
+            }
+          }
+        }
+      }
+    }
+  }
+}

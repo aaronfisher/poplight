@@ -1,0 +1,50 @@
+{
+  "name": "homebridge-poplight",
+  "displayName": "Poplight",
+  "version": "0.1.0",
+  "description": "Homebridge plugin for Poplight Bluetooth wall sconces (thepoplight.com)",
+  "license": "MIT",
+  "author": "Aaron Fisher",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aaronfisher/poplight.git",
+    "directory": "homebridge"
+  },
+  "bugs": "https://github.com/aaronfisher/poplight/issues",
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "config.schema.json",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^20 || ^22 || ^24",
+    "homebridge": "^1.8.0 || ^2.0.0-beta.0"
+  },
+  "keywords": [
+    "homebridge-plugin",
+    "poplight",
+    "bluetooth",
+    "ble",
+    "homekit",
+    "light"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "tsc && node --test dist/*.test.js",
+    "lint": "tsc --noEmit",
+    "homebridge": "homebridge -D -U ./.homebridge -P ."
+  },
+  "dependencies": {
+    "@stoprocent/noble": "^2.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "homebridge": "^2.0.0",
+    "typescript": "^5.6.0"
+  },
+  "bin": {
+    "poplight-cli": "dist/cli.js"
+  }
+}
