@@ -19,8 +19,14 @@ struct MenuBarView: View {
             if store.lights.isEmpty {
                 Text("No lights added yet.").foregroundStyle(.secondary)
             } else {
+                if store.lights.count > 1 {
+                    CompactRow(title: "All Lights", lights: store.lights, isGroup: true)
+                }
+                ForEach(store.groups) { group in
+                    CompactRow(title: group.name, lights: store.members(of: group), isGroup: true)
+                }
                 ForEach(store.lights) { light in
-                    CompactLightRow(light: light)
+                    CompactRow(title: light.name, lights: [light], isGroup: false)
                 }
             }
 
@@ -47,37 +53,45 @@ struct MenuBarView: View {
     }
 }
 
-private struct CompactLightRow: View {
-    let light: PoplightLight
+private struct CompactRow: View {
+    @Environment(LightStore.self) private var store
+    let title: String
+    let lights: [PoplightLight]
+    let isGroup: Bool
     @State private var brightness: Double = 99
 
-    private var enabled: Bool { light.isReady && PoplightProtocol.isKnown }
+    private var enabled: Bool { lights.contains(where: \.isReady) && PoplightProtocol.isKnown }
+    private var isOn: Bool { lights.contains { $0.state.isOn == true } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Circle()
-                    .fill(light.isReady ? Color.green : Color.secondary)
-                    .frame(width: 8, height: 8)
-                Text(light.name)
+                if isGroup {
+                    Image(systemName: "rectangle.3.group").foregroundStyle(.secondary)
+                } else {
+                    Circle()
+                        .fill(lights.first?.isReady == true ? Color.green : Color.secondary)
+                        .frame(width: 8, height: 8)
+                }
+                Text(title).fontWeight(isGroup ? .semibold : .regular)
                 Spacer()
-                if let battery = light.state.batteryPercent {
+                if !isGroup, let battery = lights.first?.state.batteryPercent {
                     Text("\(battery)%").font(.caption).foregroundStyle(.secondary)
                 }
-                Toggle("", isOn: Binding(get: { light.state.isOn ?? false }, set: { light.setPower($0) }))
+                Toggle("", isOn: Binding(get: { isOn }, set: { store.send(.power($0), to: lights) }))
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .labelsHidden()
                     .disabled(!enabled)
             }
             Slider(value: $brightness, in: 1...99, step: 1) { editing in
-                if !editing { light.setBrightness(Int(brightness)) }
+                if !editing { store.send(.brightness(Int(brightness)), to: lights) }
             }
             .controlSize(.small)
             .disabled(!enabled)
         }
-        .onChange(of: light.state.brightness) { _, value in
-            if let value { brightness = Double(value) }
+        .onChange(of: lights.first?.state.brightness) { _, value in
+            if !isGroup, let value { brightness = Double(value) }
         }
     }
 }

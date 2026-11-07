@@ -1,12 +1,14 @@
 import PoplightKit
 import SwiftUI
 
-/// Main window: one card per light.
+/// Main window: groups first, then one card per light.
 struct ControlView: View {
     @Environment(BLEManager.self) private var ble
     @Environment(LightStore.self) private var store
     @Environment(\.openWindow) private var openWindow
     @State private var showAdd = false
+    @State private var showNewGroup = false
+    @State private var editingGroup: LightGroup?
 
     var body: some View {
         Group {
@@ -25,6 +27,14 @@ struct ControlView: View {
                         if !PoplightProtocol.isKnown {
                             ProtocolBanner()
                         }
+                        if store.lights.count > 1 {
+                            GroupCard(title: "All Lights", lights: store.lights)
+                        }
+                        ForEach(store.groups) { group in
+                            GroupCard(title: group.name, lights: store.members(of: group), group: group) {
+                                editingGroup = group
+                            }
+                        }
                         ForEach(store.lights) { light in
                             LightCard(light: light)
                         }
@@ -36,10 +46,12 @@ struct ControlView: View {
         .frame(minWidth: 420, minHeight: 320)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showAdd = true
+                Menu {
+                    Button("Add Light…") { showAdd = true }
+                    Button("New Group…") { showNewGroup = true }
+                        .disabled(store.lights.count < 2)
                 } label: {
-                    Label("Add Light", systemImage: "plus")
+                    Label("Add", systemImage: "plus")
                 }
             }
             ToolbarItem {
@@ -55,9 +67,9 @@ struct ControlView: View {
                     .foregroundStyle(ble.state == .poweredOn ? Color.secondary : Color.red)
             }
         }
-        .sheet(isPresented: $showAdd) {
-            AddLightSheet()
-        }
+        .sheet(isPresented: $showAdd) { AddLightSheet() }
+        .sheet(isPresented: $showNewGroup) { GroupEditorSheet() }
+        .sheet(item: $editingGroup) { group in GroupEditorSheet(existing: group) }
         .onAppear { store.connectAll() }
     }
 }
@@ -109,52 +121,19 @@ struct LightCard: View {
                     .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Toggle("", isOn: Binding(
-                    get: { light.state.isOn ?? false },
-                    set: { light.setPower($0) }
-                ))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .disabled(!controlsEnabled)
+                ControlsPanel.powerSwitch(isOn: light.state.isOn ?? false, enabled: controlsEnabled) { light.setPower($0) }
             }
 
-            HStack(spacing: 10) {
-                Image(systemName: "sun.min")
-                Slider(value: $brightness, in: 1...99, step: 1) { editing in
-                    if !editing { light.setBrightness(Int(brightness)) }
-                }
-                Image(systemName: "sun.max")
-                Text("\(Int(brightness))%")
-                    .font(.caption.monospacedDigit())
-                    .frame(width: 38, alignment: .trailing)
-            }
-            .disabled(!controlsEnabled)
-
-            HStack {
-                Picker("Warmth", selection: Binding(
-                    get: { light.state.colorTemperature ?? .neutral },
-                    set: { light.setColorTemperature($0) }
-                )) {
-                    Text("Warm").tag(PoplightColorTemperature.warm)
-                    Text("Neutral").tag(PoplightColorTemperature.neutral)
-                    Text("Cool").tag(PoplightColorTemperature.cool)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(maxWidth: 260)
-
-                Spacer()
-
-                Menu {
-                    ForEach([15, 30, 45, 60, 120, 240], id: \.self) { minutes in
-                        Button("\(minutes) min") { light.setSleepTimer(minutes: minutes) }
-                    }
-                } label: {
-                    Label("Timer", systemImage: "timer")
-                }
-                .fixedSize()
-            }
-            .disabled(!controlsEnabled)
+            ControlsPanel(
+                isOn: light.state.isOn ?? false,
+                warmth: light.state.colorTemperature ?? .neutral,
+                enabled: controlsEnabled,
+                brightness: $brightness,
+                onPower: { light.setPower($0) },
+                onBrightness: { light.setBrightness($0) },
+                onWarmth: { light.setColorTemperature($0) },
+                onTimer: { light.setSleepTimer(minutes: $0) }
+            )
 
             if let error = light.lastError {
                 Text(error).font(.caption).foregroundStyle(.red)
@@ -168,7 +147,7 @@ struct LightCard: View {
             } else {
                 Button("Connect") { light.connect() }
             }
-            Button("Refresh status") { light.refresh() }.disabled(!controlsEnabled)
+            Button("Refresh battery") { light.refresh() }.disabled(!controlsEnabled)
             Button("Rename…") { newName = light.name; isRenaming = true }
             Divider()
             Button("Remove", role: .destructive) { store.remove(light.id) }
