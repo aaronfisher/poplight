@@ -73,6 +73,14 @@ It installs Homebridge, builds and installs this plugin, grants Node raw Bluetoo
 stops `bluetoothd` so the HCI binding owns the adapter, and adds the Poplight platform to
 `config.json`. Re-run it to update. Then open `http://<pi>:8581` and pair the bridge in Home.
 
+**Radio note (tested 2026-11-06):** a Raspberry Pi Zero 2 W's onboard Bluetooth 4.2 radio never
+received a single advertisement from a Poplight, even from one foot away, while a Mac heard
+both lights from 15 feet. The lights appear to use Bluetooth 5 advertising that a 4.2
+controller cannot see. Use a Bluetooth 5 USB dongle on the Pi (TP-Link UB500 / Realtek
+RTL8761BU works out of the box on Raspberry Pi OS; a micro-USB OTG adapter is needed on a
+Zero) and disable the onboard radio with `dtoverlay=disable-bt` in `/boot/firmware/config.txt`
+so the dongle becomes `hci0`. Pi 4/5 onboard radios are Bluetooth 5 and should be fine.
+
 Running on a Synology NAS with a USB dongle is possible in theory but blocked in practice on
 most models (no Bluetooth kernel modules); see [docs/synology.md](docs/synology.md).
 
