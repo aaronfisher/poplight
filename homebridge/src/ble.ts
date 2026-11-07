@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { Logging } from 'homebridge';
-import noble from '@stoprocent/noble';
-import type { Characteristic, Peripheral } from '@stoprocent/noble';
+import { withBindings } from '@stoprocent/noble';
+import type { Characteristic, Noble, Peripheral } from '@stoprocent/noble';
 import {
   COMMAND_CHARACTERISTIC_UUID,
   SERVICE_UUID,
@@ -12,13 +12,20 @@ import {
   type Command,
 } from './protocol';
 
+export type BindingName = 'default' | 'hci' | 'dbus' | 'mac' | 'win';
+
 /** Thin wrapper around noble: powers on, scans, and hands out Poplight peripherals. */
 export class PoplightScanner extends EventEmitter {
   private started = false;
   private readonly seen = new Map<string, Peripheral>();
+  private readonly noble: Noble;
 
-  constructor(private readonly log: Logging) {
+  constructor(
+    private readonly log: Logging,
+    bindings: BindingName = 'default',
+  ) {
     super();
+    this.noble = withBindings(bindings as 'default');
   }
 
   async start(): Promise<void> {
@@ -26,6 +33,7 @@ export class PoplightScanner extends EventEmitter {
       return;
     }
     this.started = true;
+    const noble = this.noble;
     noble.on('discover', (peripheral: Peripheral) => {
       const name = peripheral.advertisement?.localName;
       if (!isPoplightName(name)) {
@@ -50,7 +58,7 @@ export class PoplightScanner extends EventEmitter {
 
   async scan(): Promise<void> {
     try {
-      await noble.startScanningAsync([], false);
+      await this.noble.startScanningAsync([], false);
       this.log.debug('Scanning for POP_Light');
     } catch (error) {
       this.log.warn(`Scan failed: ${(error as Error).message}`);
@@ -61,7 +69,7 @@ export class PoplightScanner extends EventEmitter {
   async rescan(id: string): Promise<void> {
     this.seen.delete(id);
     try {
-      await noble.stopScanningAsync();
+      await this.noble.stopScanningAsync();
     } catch {
       // ignore
     }

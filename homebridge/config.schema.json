@@ -59,6 +59,38 @@
             }
           }
         }
+      },
+      "bindings": {
+        "title": "Bluetooth bindings",
+        "description": "Which noble driver to use. 'default' picks the platform driver (CoreBluetooth on macOS, raw HCI socket on Linux). Use 'hci' explicitly inside Docker on Linux, or 'dbus' to go through BlueZ.",
+        "type": "string",
+        "default": "default",
+        "oneOf": [
+          {
+            "title": "Default for this platform",
+            "enum": [
+              "default"
+            ]
+          },
+          {
+            "title": "Linux HCI socket (no BlueZ needed)",
+            "enum": [
+              "hci"
+            ]
+          },
+          {
+            "title": "Linux BlueZ D-Bus",
+            "enum": [
+              "dbus"
+            ]
+          },
+          {
+            "title": "macOS CoreBluetooth",
+            "enum": [
+              "mac"
+            ]
+          }
+        ]
       }
     }
   }

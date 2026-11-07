@@ -1,7 +1,7 @@
 import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformConfig } from 'homebridge';
 import type { Peripheral } from '@stoprocent/noble';
 import { PoplightAccessory, type PoplightContext } from './accessory';
-import { PoplightLink, PoplightScanner } from './ble';
+import { PoplightLink, PoplightScanner, type BindingName } from './ble';
 import { BatterySensorAccessory, type SensorContext } from './sensors';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
@@ -11,6 +11,7 @@ export interface PoplightConfig extends PlatformConfig {
   lowBatteryThreshold?: number;
   batterySensor?: boolean;
   lowBatterySensor?: boolean;
+  bindings?: BindingName;
   lights?: { id: string; name: string }[];
 }
 
@@ -66,7 +67,7 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
       this.ensureSensors(id, handler);
     }
 
-    this.scanner = new PoplightScanner(this.log);
+    this.scanner = new PoplightScanner(this.log, this.config.bindings ?? 'default');
     this.scanner.on('poplight', (peripheral: Peripheral) => this.handleDiscovered(peripheral));
     try {
       await this.scanner.start();

@@ -52,6 +52,9 @@ cd homebridge && npm install && npm run build && npm link
   light is logged when it is found; use it in `lights` to give it a name, or set
   `autoDiscover` to `false` to add only the listed lights.
 - `batteryPollMinutes` (default 5): how often to ask each light for its battery level.
+- `bindings` (default `default`): Bluetooth driver. Leave it unless you run in Docker on
+  Linux, where `hci` (raw socket, no BlueZ) is the reliable choice; `dbus` uses BlueZ. The HCI
+  adapter index can be set with the `NOBLE_HCI_DEVICE_ID` environment variable.
 - `lowBatteryThreshold` (default 25): at or below this the light's battery is flagged low. The
   light reports in steps of 25.
 - `batterySensor` (default off): adds a "<light> Battery" tile, a humidity-style sensor whose
@@ -59,6 +62,9 @@ cd homebridge && npm install && npm run build && npm link
 - `lowBatterySensor` (default off): adds a "<light> Battery Low" contact sensor that opens at
   the threshold. Turn on notifications for it in Home to get a push alert, or use it in
   automations. Turning either option off removes the tiles on the next restart.
+
+Running on a Synology NAS with a USB dongle is possible but unsupported by Synology; see
+[docs/synology.md](docs/synology.md) before buying a dongle.
 
 ## Notes
 
