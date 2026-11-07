@@ -1,81 +1,72 @@
 # Poplight
 
-Local, app-free control of [Poplight](https://thepoplight.com) Bluetooth wall sconces from a
-Mac menu bar app, with a **Lab** window for reverse-engineering and fine-tuning the BLE
-protocol. The protocol itself is documented in [PROTOCOL.md](PROTOCOL.md) so it can later be
-ported to Homebridge, Home Assistant, or anything else.
+Local, app-free control of [Poplight](https://thepoplight.com) rechargeable Bluetooth wall
+sconces. The Bluetooth protocol was reverse-engineered from the official app and is documented
+in [PROTOCOL.md](PROTOCOL.md); everything else in this repo builds on that.
 
-Status: **Phase 1 – Lab app**. The protocol is not decoded yet; the menu bar shows
-connection state only. See "Roadmap" below.
+| Folder | What | Status |
+|---|---|---|
+| [`macos/`](macos/) | Native macOS app: Dock window + menu bar, per-light and group controls, GATT Lab | Working |
+| [`homebridge/`](homebridge/) | Homebridge plugin for Apple HomeKit | Planned |
+| [`tools/`](tools/) | `pklg2att.py`, PacketLogger capture → ATT timeline | Working |
+| [`PROTOCOL.md`](PROTOCOL.md) | Language-neutral protocol spec | Decoded, hardware-verified |
 
-## Layout
+## Protocol in one paragraph
 
-```
-project.yml                  XcodeGen spec (macOS 26, Swift 6, MainActor default isolation)
-Packages/PoplightKit/        Swift package, no UI
-  Protocol/                  pure byte codec – no CoreBluetooth import, portable
-  Transport/                 CoreBluetooth central, connection, GATT model, log
-  Lab/                       hex helpers, well-known GATT names/decoders
-Poplight/                    macOS app: MenuBarExtra + Lab window
-tools/pklg2att.py            PacketLogger .pklg → ATT timeline (stdlib only)
-scripts/{build,run,test}.sh  build with Xcode 27 beta, run, unit tests
-```
+Each light advertises as `POP_Light` and exposes service `FFB0` with `FFB1` (write) and
+`FFB2` (notify). Commands are 3–4 raw bytes with no checksum or handshake: power `01 01 x`,
+brightness `01 02 n` (1–99), warmth `01 06 v` (0 cool, 1 neutral, 2 warm), sleep timer
+`02 03 00 idx` (15-minute steps), battery query `01 09 00` answered on `FFB2` as `01 09 raw`.
+The light accepts one connection at a time and never pushes state changes.
 
-## Build & run
+## macOS app
 
-Requires Xcode 27 (beta is fine) and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
-`xcode-select` may point at the Command Line Tools; the scripts set `DEVELOPER_DIR` to
-`/Applications/Xcode-beta.app` for you.
+Requires Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen).
 
 ```sh
-./scripts/run.sh --lab     # build + launch, Lab window open
-./scripts/test.sh          # PoplightKit unit tests
-xcodegen generate && open Poplight.xcodeproj   # to work in Xcode
+cd macos
+./scripts/run.sh          # build + launch (add --lab to open the Lab window)
+./scripts/test.sh         # PoplightKit unit tests
+xcodegen generate && open Poplight.xcodeproj
 ```
 
-First launch asks for Bluetooth permission. The app is signed to run locally and is not
-sandboxed. It lives only in the menu bar (`LSUIElement`); the Lab opens at launch until the
-protocol is known, or with `--lab`.
+- **Window**: an *All Lights* card, your named groups, then one card per light with power,
+  brightness, warm/neutral/cool, sleep timer and battery. Groups fan commands out
+  per light, so individual control keeps working.
+- **Menu bar**: the same controls in compact form; toggle it in Settings.
+- **Lab** (toolbar): scan, connect, browse the full GATT database, write raw hex, and see every
+  byte in a log that is also saved under `~/Library/Application Support/Poplight/logs/`.
+- Lights and groups persist in `~/Library/Application Support/Poplight/`. Known lights
+  reconnect automatically.
 
-## The Lab
+Layout under `macos/`:
 
-- **Scan** lists every advertising peripheral, Poplight-looking names first. Selecting one
-  shows the decoded advertisement (manufacturer/company id, service UUIDs, service data).
-- **Connect** discovers every service, characteristic and descriptor, reads everything
-  readable, and subscribes to everything that notifies. Each characteristic row has
-  Read / Notify / Write… controls; Write takes loose hex (`01 a2 ff`, `0x01,0xa2`).
-- **Log** shows every byte both ways with relative timestamps; Copy JSON / Copy text for
-  pasting into notes or a chat.
+```
+project.yml                   XcodeGen spec (macOS 26, Swift 6, MainActor default isolation)
+Poplight/                     app target: App, Views/{Control,MenuBar,Lab}, Models, Resources
+Packages/PoplightKit/         Swift package, no UI
+  Protocol/                   pure byte codec, no CoreBluetooth – the part to port elsewhere
+  Transport/                  CoreBluetooth central, connection, light controller, log
+  Lab/                        hex helpers, well-known GATT names
+scripts/{build,run,test}.sh
+```
 
-Only one central can usually be connected to a light at a time: quit the official Poplight
-app (phone or Mac) before connecting from the Lab, and vice versa.
+Quit the official Poplight app (phone or Mac) before connecting; the light only takes one
+central.
 
-## Capturing the official app (Phase 2)
+## Capturing traffic
 
-1. Install the Poplight app from the Mac App Store (it is an iOS app that runs on Apple
-   Silicon Macs).
-2. Download *Additional Tools for Xcode* from developer.apple.com and open **PacketLogger**.
-   File → New macOS Trace (or the equivalent in your version) starts capturing the Mac's own
-   Bluetooth traffic.
-3. Quit our app, open the official app, and with one light nearby perform a scripted
-   sequence with ~5 s pauses: on, off, on, brightness 25 / 50 / 100, warm / neutral / cool,
-   10-min timer, cancel timer, refresh battery, then pair the second light and try grouping.
-   Note the wall-clock time of each step.
-4. Save the capture (`.pklg`) and run:
+If you ever need a live capture (for example to decode a new firmware), Apple's PacketLogger
+does not capture the Mac's own Bluetooth on recent macOS. Use an iPhone with Apple's Bluetooth
+logging profile and PacketLogger's *New iOS Trace*, then:
 
-   ```sh
-   python3 tools/pklg2att.py capture.pklg            # reads/writes/notifications with UUIDs
-   python3 tools/pklg2att.py capture.pklg --handles  # GATT handle map
-   python3 tools/pklg2att.py capture.pklg --json     # for scripting
-   ```
+```sh
+python3 tools/pklg2att.py capture.pklg
+```
 
-`.pklg` files are git-ignored; keep decoded findings in `PROTOCOL.md`.
+## How the protocol was recovered
 
-## Roadmap
-
-1. **Lab app** – done.
-2. **Capture & decode** the official app's traffic → `PROTOCOL.md`, `PoplightProtocol` codec + tests.
-3. **Controls** in the menu bar: per-light power, brightness, warm/neutral/cool, battery,
-   sleep timer; "all lights" fan-out; remembered lights with auto-reconnect; launch at login;
-   App Intents for Shortcuts/Siri.
-4. **Ports**: Homebridge plugin (TypeScript, `@stoprocent/noble`) or Home Assistant (Python, `bleak`).
+The official app is Flutter. Its Dart code ships unencrypted in `App.framework`, so it was
+decompiled with [Blutter](https://github.com/worawit/blutter) (with local patches for iOS
+Mach-O input on Dart 3.11) and the byte lists were read straight out of the pseudo-code.
+Details and source references are in [PROTOCOL.md](PROTOCOL.md).
