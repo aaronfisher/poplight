@@ -14,6 +14,25 @@ import {
 
 export type BindingName = 'default' | 'hci' | 'dbus' | 'mac' | 'win';
 
+const CONNECT_TIMEOUT_MS = 20_000;
+const DISCOVER_TIMEOUT_MS = 20_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms / 1000}s`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 /** Thin wrapper around noble: powers on, scans, and hands out Poplight peripherals. */
 export class PoplightScanner extends EventEmitter {
   private started = false;
@@ -125,10 +144,15 @@ export class PoplightLink extends EventEmitter {
     const p = this.peripheral;
     this.log.debug(`${this.label}: connecting (attempt ${this.attempts + 1})`);
     try {
-      await p.connectAsync();
-      const { characteristics } = await p.discoverSomeServicesAndCharacteristicsAsync(
-        [SERVICE_UUID],
-        [COMMAND_CHARACTERISTIC_UUID, STATUS_CHARACTERISTIC_UUID],
+      await withTimeout(p.connectAsync(), CONNECT_TIMEOUT_MS, 'connect');
+      this.log.debug(`${this.label}: link up, discovering FFB0`);
+      const { characteristics } = await withTimeout(
+        p.discoverSomeServicesAndCharacteristicsAsync(
+          [SERVICE_UUID],
+          [COMMAND_CHARACTERISTIC_UUID, STATUS_CHARACTERISTIC_UUID],
+        ),
+        DISCOVER_TIMEOUT_MS,
+        'service discovery',
       );
       this.command = characteristics.find((c) => c.uuid === COMMAND_CHARACTERISTIC_UUID);
       this.status = characteristics.find((c) => c.uuid === STATUS_CHARACTERISTIC_UUID);
