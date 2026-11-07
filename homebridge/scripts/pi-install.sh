@@ -49,11 +49,12 @@ echo "==> building plugin"
 cd "$SRC_DIR/homebridge"
 PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" install --silent --no-audit --no-fund
 PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" run build --silent
-tarball=$(PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" pack --silent | tail -1)
+tarball=$(PATH="/opt/homebridge/bin:$PATH" "$HB_NPM" pack --silent 2>/dev/null | tail -1)
+[[ -f "$SRC_DIR/homebridge/$tarball" ]] || { echo "npm pack did not produce a tarball" >&2; exit 1; }
 
 echo "==> installing $tarball into Homebridge"
 cd "$HB_DIR"
-PATH="/opt/homebridge/bin:$PATH" sudo -u homebridge -E "$HB_NPM" install --silent --no-audit --no-fund --save "$SRC_DIR/homebridge/$tarball"
+sudo -u homebridge env PATH="/opt/homebridge/bin:$PATH" HOME="$HB_DIR" "$HB_NPM" install --silent --no-audit --no-fund --save "$SRC_DIR/homebridge/$tarball"
 rm -f "$SRC_DIR/homebridge/$tarball"
 
 echo "==> Bluetooth: raw HCI access for Node, adapter released from bluetoothd"
