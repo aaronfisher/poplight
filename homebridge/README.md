@@ -39,8 +39,11 @@ cd homebridge && npm install && npm run build && npm link
   "platform": "Poplight",
   "autoDiscover": true,
   "batteryPollMinutes": 5,
+  "lowBatteryThreshold": 25,
+  "batterySensor": true,
+  "lowBatterySensor": true,
   "lights": [
-    { "id": "8cc00fe3-…", "name": "Bedroom left" }
+    { "id": "8cc00fe3…", "name": "Bedroom left" }
   ]
 }
 ```
@@ -49,6 +52,13 @@ cd homebridge && npm install && npm run build && npm link
   light is logged when it is found; use it in `lights` to give it a name, or set
   `autoDiscover` to `false` to add only the listed lights.
 - `batteryPollMinutes` (default 5): how often to ask each light for its battery level.
+- `lowBatteryThreshold` (default 25): at or below this the light's battery is flagged low. The
+  light reports in steps of 25.
+- `batterySensor` (default off): adds a "<light> Battery" tile, a humidity-style sensor whose
+  value is the battery percentage, so you can see it without opening the light.
+- `lowBatterySensor` (default off): adds a "<light> Battery Low" contact sensor that opens at
+  the threshold. Turn on notifications for it in Home to get a push alert, or use it in
+  automations. Turning either option off removes the tiles on the next restart.
 
 ## Notes
 

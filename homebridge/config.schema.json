@@ -19,6 +19,26 @@
         "minimum": 1,
         "maximum": 120
       },
+      "lowBatteryThreshold": {
+        "title": "Low battery threshold (%)",
+        "description": "At or below this level the light is flagged as low battery. The light reports 25/50/75/100.",
+        "type": "integer",
+        "default": 25,
+        "minimum": 1,
+        "maximum": 99
+      },
+      "batterySensor": {
+        "title": "Battery level tile",
+        "description": "Add a '<light> Battery' humidity-style sensor per light so the percentage shows on its own tile in Home.",
+        "type": "boolean",
+        "default": false
+      },
+      "lowBatterySensor": {
+        "title": "Battery Low contact sensor",
+        "description": "Add a '<light> Battery Low' contact sensor per light. It opens at the threshold, so Home can send a notification and automations can react.",
+        "type": "boolean",
+        "default": false
+      },
       "lights": {
         "title": "Lights",
         "description": "Optional names for specific lights. With auto-discover off, only these lights are added.",

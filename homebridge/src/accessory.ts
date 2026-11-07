@@ -25,6 +25,8 @@ export class PoplightAccessory {
   private readonly log: Logging;
   private pollTimer?: NodeJS.Timeout;
   private link?: PoplightLink;
+  /** Called with the mapped battery percentage whenever the light reports it. */
+  public onBattery?: (percent: number) => void;
 
   constructor(
     private readonly platform: PoplightPlatform,
@@ -59,7 +61,7 @@ export class PoplightAccessory {
     this.battery
       .getCharacteristic(Characteristic.StatusLowBattery)
       .onGet(() =>
-        (ctx.battery ?? 100) <= 25
+        (ctx.battery ?? 100) <= this.threshold
           ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
           : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL,
       );
@@ -68,6 +70,16 @@ export class PoplightAccessory {
 
   get name(): string {
     return this.accessory.context.name;
+  }
+
+  private get threshold(): number {
+    return this.platform.config.lowBatteryThreshold ?? 25;
+  }
+
+  rename(name: string): void {
+    this.accessory.context.name = name;
+    this.accessory.displayName = name;
+    this.light.updateCharacteristic(this.hap.Characteristic.Name, name);
   }
 
   attach(link: PoplightLink): void {
@@ -165,10 +177,11 @@ export class PoplightAccessory {
     this.battery.updateCharacteristic(Characteristic.BatteryLevel, status.batteryPercent);
     this.battery.updateCharacteristic(
       Characteristic.StatusLowBattery,
-      status.batteryPercent <= 25
+      status.batteryPercent <= this.threshold
         ? Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
         : Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL,
     );
+    this.onBattery?.(status.batteryPercent);
   }
 
   private startPolling(): void {

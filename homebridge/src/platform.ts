@@ -2,19 +2,28 @@ import type { API, DynamicPlatformPlugin, Logging, PlatformAccessory, PlatformCo
 import type { Peripheral } from '@stoprocent/noble';
 import { PoplightAccessory, type PoplightContext } from './accessory';
 import { PoplightLink, PoplightScanner } from './ble';
+import { BatterySensorAccessory, type SensorContext } from './sensors';
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
 export interface PoplightConfig extends PlatformConfig {
   autoDiscover?: boolean;
   batteryPollMinutes?: number;
+  lowBatteryThreshold?: number;
+  batterySensor?: boolean;
+  lowBatterySensor?: boolean;
   lights?: { id: string; name: string }[];
 }
+
+type SensorKind = SensorContext['kind'];
+const SENSOR_KINDS: SensorKind[] = ['battery', 'low'];
 
 export class PoplightPlatform implements DynamicPlatformPlugin {
   public readonly config: PoplightConfig;
   private readonly accessories = new Map<string, PlatformAccessory<PoplightContext>>();
   private readonly handlers = new Map<string, PoplightAccessory>();
   private readonly links = new Map<string, PoplightLink>();
+  private readonly sensorAccessories = new Map<string, PlatformAccessory<SensorContext>>(); // key: `${id}:${kind}`
+  private readonly sensors = new Map<string, BatterySensorAccessory>();
   private scanner?: PoplightScanner;
 
   constructor(
@@ -29,6 +38,12 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
 
   /** Called by Homebridge for every accessory restored from cache, before didFinishLaunching. */
   configureAccessory(accessory: PlatformAccessory): void {
+    const context = accessory.context as Partial<SensorContext>;
+    if (context.kind === 'battery' || context.kind === 'low') {
+      const typed = accessory as PlatformAccessory<SensorContext>;
+      this.sensorAccessories.set(`${typed.context.id}:${typed.context.kind}`, typed);
+      return; // handler is created (or the accessory dropped) once config is known, in start()
+    }
     const typed = accessory as PlatformAccessory<PoplightContext>;
     this.log.info(`Restoring ${typed.context.name ?? accessory.displayName} from cache`);
     this.accessories.set(typed.context.id, typed);
@@ -36,6 +51,21 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
   }
 
   private async start(): Promise<void> {
+    // Reconcile cached companion sensors with the current config.
+    for (const [key, accessory] of [...this.sensorAccessories]) {
+      if (this.sensorEnabled(accessory.context.kind)) {
+        this.sensors.set(key, new BatterySensorAccessory(this, accessory));
+        this.log.info(`Restoring ${accessory.context.name} from cache`);
+      } else {
+        this.log.info(`Removing ${accessory.context.name} (disabled in config)`);
+        this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.sensorAccessories.delete(key);
+      }
+    }
+    for (const [id, handler] of this.handlers) {
+      this.ensureSensors(id, handler);
+    }
+
     this.scanner = new PoplightScanner(this.log);
     this.scanner.on('poplight', (peripheral: Peripheral) => this.handleDiscovered(peripheral));
     try {
@@ -43,6 +73,39 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     } catch (error) {
       this.log.error(`Bluetooth unavailable: ${(error as Error).message}`);
     }
+  }
+
+  private sensorEnabled(kind: SensorKind): boolean {
+    return kind === 'battery' ? this.config.batterySensor === true : this.config.lowBatterySensor === true;
+  }
+
+  private sensorName(lightName: string, kind: SensorKind): string {
+    return kind === 'battery' ? `${lightName} Battery` : `${lightName} Battery Low`;
+  }
+
+  /** Create the enabled companion sensors for a light and wire battery updates to them. */
+  private ensureSensors(id: string, handler: PoplightAccessory): void {
+    for (const kind of SENSOR_KINDS) {
+      if (!this.sensorEnabled(kind)) {
+        continue;
+      }
+      const key = `${id}:${kind}`;
+      if (!this.sensors.has(key)) {
+        const name = this.sensorName(handler.name, kind);
+        const uuid = this.api.hap.uuid.generate(`${PLUGIN_NAME}:${id}:${kind}`);
+        const accessory = new this.api.platformAccessory<SensorContext>(name, uuid);
+        accessory.context = { id, name, kind, battery: handler.accessory.context.battery };
+        this.sensorAccessories.set(key, accessory);
+        this.sensors.set(key, new BatterySensorAccessory(this, accessory));
+        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+        this.log.info(`Added ${name}`);
+      }
+    }
+    handler.onBattery = (percent) => {
+      for (const kind of SENSOR_KINDS) {
+        this.sensors.get(`${id}:${kind}`)?.update(percent);
+      }
+    };
   }
 
   private configuredName(id: string): string | undefined {
@@ -74,10 +137,17 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.log.info(`Added ${name} (${id})`);
     } else if (configured && accessory.context.name !== configured) {
-      accessory.context.name = configured;
-      accessory.displayName = configured;
+      this.handlers.get(id)!.rename(configured);
       this.api.updatePlatformAccessories([accessory]);
+      for (const kind of SENSOR_KINDS) {
+        const sensor = this.sensors.get(`${id}:${kind}`);
+        if (sensor) {
+          sensor.rename(this.sensorName(configured, kind));
+          this.api.updatePlatformAccessories([sensor.accessory]);
+        }
+      }
     }
+    this.ensureSensors(id, this.handlers.get(id)!);
 
     const link = new PoplightLink(peripheral, this.log, accessory.context.name);
     link.on('stale', () => void this.scanner?.rescan(id));
