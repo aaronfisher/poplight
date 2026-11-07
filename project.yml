@@ -35,7 +35,6 @@ targets:
       path: Poplight/Resources/Info.plist
       properties:
         CFBundleDisplayName: Poplight
-        LSUIElement: true
         NSBluetoothAlwaysUsageDescription: Poplight talks to your Poplight lights over Bluetooth.
         ITSAppUsesNonExemptEncryption: false
         LSMinimumSystemVersion: "26.0"

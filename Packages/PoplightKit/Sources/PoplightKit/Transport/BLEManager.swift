@@ -14,6 +14,9 @@ public final class BLEManager: NSObject {
 
     @ObservationIgnored private var central: CBCentralManager!
     @ObservationIgnored private var peripherals: [UUID: CBPeripheral] = [:]
+    /// Connects requested before Bluetooth was powered on, or for peripherals CoreBluetooth
+    /// does not remember yet; resolved on power-on or when the peripheral shows up in a scan.
+    @ObservationIgnored private var wanted: Set<UUID> = []
 
     public override init() {
         super.init()
@@ -78,15 +81,23 @@ public final class BLEManager: NSObject {
         if let existing = connections[id], existing.status.isConnected || existing.status == .connecting {
             return existing
         }
+        guard state == .poweredOn else {
+            wanted.insert(id)
+            append(.info, "connect \(id.uuidString.prefix(8)) deferred until Bluetooth is on")
+            return connections[id]
+        }
         var peripheral = peripherals[id]
         if peripheral == nil {
             peripheral = central.retrievePeripherals(withIdentifiers: [id]).first
             if let peripheral { peripherals[id] = peripheral }
         }
         guard let peripheral else {
-            append(.error, "connect: unknown peripheral \(id)")
+            wanted.insert(id)
+            append(.info, "connect \(id.uuidString.prefix(8)): not known to CoreBluetooth, scanning for it")
+            if !isScanning { startScan() }
             return nil
         }
+        wanted.remove(id)
         let connection = connections[id] ?? BLEConnection(peripheral: peripheral, name: discovered(id)?.displayName)
         connection.status = .connecting
         connections[id] = connection
@@ -96,6 +107,7 @@ public final class BLEManager: NSObject {
     }
 
     public func disconnect(_ id: UUID) {
+        wanted.remove(id)
         guard let peripheral = peripherals[id] else { return }
         central.cancelPeripheralConnection(peripheral)
     }
@@ -121,11 +133,17 @@ extension BLEManager: @MainActor CBCentralManagerDelegate {
         append(.info, stateDescription)
         if state != .poweredOn {
             isScanning = false
+        } else {
+            for id in wanted { connect(id) }
         }
     }
 
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
         peripherals[peripheral.identifier] = peripheral
+        if wanted.contains(peripheral.identifier) {
+            connect(peripheral.identifier)
+            if wanted.isEmpty, isScanning, discovered.isEmpty { stopScan() }
+        }
         let advertisement = Advertisement(advertisementData)
         let now = Date()
         if let index = discovered.firstIndex(where: { $0.id == peripheral.identifier }) {

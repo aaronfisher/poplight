@@ -24,8 +24,6 @@
 	<false/>
 	<key>LSMinimumSystemVersion</key>
 	<string>26.0</string>
-	<key>LSUIElement</key>
-	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>Poplight talks to your Poplight lights over Bluetooth.</string>
 </dict>

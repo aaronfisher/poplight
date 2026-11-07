@@ -1,6 +1,6 @@
 # Poplight – notes for Claude
 
-- Build with `./scripts/build.sh` (sets `DEVELOPER_DIR` to Xcode-beta; xcode-select points at CLT).
+- Build with `./scripts/build.sh` (uses the selected Xcode; falls back to Xcode-beta if xcode-select points at CLT).
   Run with `./scripts/run.sh --lab`. Tests: `./scripts/test.sh`.
 - Regenerate the Xcode project with `xcodegen generate` after adding files; `*.xcodeproj` is git-ignored.
 - Swift 6 with `SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor` everywhere. CoreBluetooth delegates use

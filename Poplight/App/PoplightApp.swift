@@ -3,22 +3,36 @@ import SwiftUI
 
 @main
 struct PoplightApp: App {
-    @State private var ble = BLEManager()
+    @State private var ble: BLEManager
+    @State private var store: LightStore
     @State private var lab = LabState()
+    @AppStorage("showMenuBarExtra") private var showMenuBarExtra = true
 
-    /// Until the protocol is decoded the Lab is the whole app, so open it at launch.
-    /// `--lab` forces it, `--no-lab` suppresses it.
-    private var shouldOpenLabAtLaunch: Bool {
-        let args = CommandLine.arguments
-        if args.contains("--no-lab") { return false }
-        if args.contains("--lab") { return true }
-        return !PoplightProtocol.isKnown
+    init() {
+        let manager = BLEManager()
+        _ble = State(initialValue: manager)
+        _store = State(initialValue: LightStore(manager: manager))
+    }
+
+    /// `--lab` opens the Lab window at launch (handy while reverse-engineering).
+    private var openLabAtLaunch: Bool {
+        CommandLine.arguments.contains("--lab")
     }
 
     var body: some Scene {
-        MenuBarExtra("Poplight", systemImage: "lamp.desk") {
+        WindowGroup("Poplight", id: "main") {
+            ControlView()
+                .environment(ble)
+                .environment(store)
+                .environment(lab)
+        }
+        .defaultSize(width: 520, height: 480)
+        .defaultLaunchBehavior(.presented)
+
+        MenuBarExtra("Poplight", systemImage: "lamp.desk", isInserted: $showMenuBarExtra) {
             MenuBarView()
                 .environment(ble)
+                .environment(store)
                 .environment(lab)
         }
         .menuBarExtraStyle(.window)
@@ -30,6 +44,14 @@ struct PoplightApp: App {
                 .frame(minWidth: 960, minHeight: 600)
         }
         .defaultSize(width: 1200, height: 760)
-        .defaultLaunchBehavior(shouldOpenLabAtLaunch ? .presented : .suppressed)
+        .defaultLaunchBehavior(openLabAtLaunch ? .presented : .suppressed)
+
+        Settings {
+            Form {
+                Toggle("Show in menu bar", isOn: $showMenuBarExtra)
+            }
+            .padding(20)
+            .frame(width: 320)
+        }
     }
 }

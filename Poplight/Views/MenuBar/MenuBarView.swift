@@ -3,44 +3,36 @@ import SwiftUI
 
 struct MenuBarView: View {
     @Environment(BLEManager.self) private var ble
-    @Environment(LabState.self) private var lab
+    @Environment(LightStore.self) private var store
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Label("Poplight", systemImage: "lamp.desk")
-                    .font(.headline)
+                Label("Poplight", systemImage: "lamp.desk").font(.headline)
                 Spacer()
-                Text(ble.stateDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(ble.stateDescription).font(.caption).foregroundStyle(.secondary)
             }
 
             Divider()
 
-            if ble.connections.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("No lights connected")
-                        .foregroundStyle(.secondary)
-                    Text("Open the Lab to scan for your Poplights. Controls appear here once the protocol is known.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
+            if store.lights.isEmpty {
+                Text("No lights added yet.").foregroundStyle(.secondary)
             } else {
-                ForEach(ble.sortedConnections) { connection in
-                    LightRow(connection: connection)
+                ForEach(store.lights) { light in
+                    CompactLightRow(light: light)
                 }
             }
 
             Divider()
 
             Button {
-                openLab()
+                openWindow(id: "main")
+                NSApp.activate()
             } label: {
-                Label("Open Lab…", systemImage: "wrench.and.screwdriver")
+                Label("Open Poplight", systemImage: "macwindow")
             }
-            .keyboardShortcut("l")
+            .keyboardShortcut("o")
 
             Button {
                 NSApp.terminate(nil)
@@ -53,48 +45,39 @@ struct MenuBarView: View {
         .padding(14)
         .frame(width: 320)
     }
-
-    private func openLab() {
-        openWindow(id: LabState.windowID)
-        NSApp.activate()
-    }
 }
 
-private struct LightRow: View {
-    @Environment(BLEManager.self) private var ble
-    let connection: BLEConnection
+private struct CompactLightRow: View {
+    let light: PoplightLight
+    @State private var brightness: Double = 100
+
+    private var enabled: Bool { light.isReady && PoplightProtocol.isKnown }
 
     var body: some View {
-        HStack {
-            Circle()
-                .fill(connection.status.isConnected ? Color.green : Color.secondary)
-                .frame(width: 8, height: 8)
-            VStack(alignment: .leading) {
-                Text(connection.name)
-                Text(statusText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Circle()
+                    .fill(light.isReady ? Color.green : Color.secondary)
+                    .frame(width: 8, height: 8)
+                Text(light.name)
+                Spacer()
+                if let battery = light.state.batteryPercent {
+                    Text("\(battery)%").font(.caption).foregroundStyle(.secondary)
+                }
+                Toggle("", isOn: Binding(get: { light.state.isOn ?? false }, set: { light.setPower($0) }))
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .labelsHidden()
+                    .disabled(!enabled)
             }
-            Spacer()
-            if connection.status.isConnected {
-                Button("Disconnect") { ble.disconnect(connection.id) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-            } else {
-                Button("Connect") { ble.connect(connection.id) }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+            Slider(value: $brightness, in: 1...100, step: 1) { editing in
+                if !editing { light.setBrightness(Int(brightness)) }
             }
+            .controlSize(.small)
+            .disabled(!enabled)
         }
-    }
-
-    private var statusText: String {
-        switch connection.status {
-        case .connecting: "connecting…"
-        case .connected: "connected"
-        case .discovering: "discovering services…"
-        case .ready: "ready · \(connection.allCharacteristics.count) characteristics"
-        case .disconnected(let reason): reason.map { "disconnected: \($0)" } ?? "disconnected"
+        .onChange(of: light.state.brightness) { _, value in
+            if let value { brightness = Double(value) }
         }
     }
 }

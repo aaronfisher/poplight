@@ -27,6 +27,26 @@ nonisolated public struct PoplightState: Equatable, Sendable, Codable {
         self.batteryPercent = batteryPercent
         self.sleepTimerRemaining = sleepTimerRemaining
     }
+
+    /// Overlay the non-nil fields of `other` onto self.
+    public mutating func merge(_ other: PoplightState) {
+        if let v = other.isOn { isOn = v }
+        if let v = other.brightness { brightness = v }
+        if let v = other.colorTemperature { colorTemperature = v }
+        if let v = other.batteryPercent { batteryPercent = v }
+        if let v = other.sleepTimerRemaining { sleepTimerRemaining = v }
+    }
+
+    /// What we expect the light's state to be after `command` succeeds.
+    public mutating func apply(_ command: PoplightCommand) {
+        switch command {
+        case .power(let on): isOn = on
+        case .brightness(let b): brightness = max(0, min(100, b))
+        case .colorTemperature(let t): colorTemperature = t
+        case .sleepTimer(let seconds): sleepTimerRemaining = seconds
+        case .queryStatus: break
+        }
+    }
 }
 
 nonisolated public enum PoplightCommand: Equatable, Sendable {

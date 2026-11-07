@@ -25,7 +25,13 @@ public final class BLEConnection: NSObject, Identifiable {
     public let id: UUID
     public let peripheral: CBPeripheral
     public var name: String
-    public internal(set) var status: Status = .connecting
+    public internal(set) var status: Status = .connecting {
+        didSet { if status != oldValue { onStatusChange?(status) } }
+    }
+    /// Called on every characteristic value update (read or notification).
+    @ObservationIgnored public var onValueUpdate: ((CBUUID, Data) -> Void)?
+    /// Called whenever `status` changes.
+    @ObservationIgnored public var onStatusChange: ((Status) -> Void)?
     public private(set) var services: [GATTService] = []
     public private(set) var log: [LogEntry] = []
     public private(set) var maximumWriteWithResponse = 0
@@ -265,6 +271,7 @@ extension BLEConnection: @MainActor CBPeripheralDelegate {
         }
         let decoded = GATTNames.decode(characteristic.uuid, data)
         append(wasRead ? .read : .notify, cb: characteristic, data: data, message: decoded)
+        onValueUpdate?(characteristic.uuid, data)
     }
 
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
