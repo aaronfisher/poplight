@@ -63,6 +63,8 @@ echo "==> Bluetooth: raw HCI access for the Homebridge service, adapter released
 mkdir -p /etc/systemd/system/homebridge.service.d
 cat >/etc/systemd/system/homebridge.service.d/bluetooth.conf <<'UNIT'
 [Service]
+# Reset the adapter so a scan left running by a previous process cannot wedge the HCI binding.
+ExecStartPre=-/usr/bin/hciconfig hci0 reset
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
 UNIT

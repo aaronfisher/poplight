@@ -77,6 +77,9 @@ export class PoplightScanner extends EventEmitter {
 
   async scan(): Promise<void> {
     try {
+      // A previous process may have left the adapter scanning; the HCI binding then fails to
+      // set scan parameters with EIO. Clearing first makes start reliable on Linux.
+      await this.noble.stopScanningAsync().catch(() => undefined);
       await this.noble.startScanningAsync([], false);
       this.log.debug('Scanning for POP_Light');
     } catch (error) {
