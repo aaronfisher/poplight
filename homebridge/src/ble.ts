@@ -16,6 +16,43 @@ export type BindingName = 'default' | 'hci' | 'dbus' | 'mac' | 'win';
 
 const CONNECT_TIMEOUT_MS = 20_000;
 const DISCOVER_TIMEOUT_MS = 20_000;
+const SUBSCRIBE_TIMEOUT_MS = 10_000;
+const DISCONNECT_TIMEOUT_MS = 5_000;
+const CCCD_UUID = '2902';
+
+/**
+ * True when noble talks to the controller directly over a Linux HCI socket. In that mode the
+ * light's notification setup needs special handling (see `PoplightLink.enableNotifications`).
+ */
+export function usesHciSocket(bindings: BindingName): boolean {
+  return bindings === 'hci' || (bindings === 'default' && process.platform === 'linux');
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * A Bluetooth controller establishes one LE connection at a time. Two lights discovered in the
+ * same scan burst would otherwise race each other (the HCI binding then fails one with
+ * "Unknown Connection Identifier" and the other with "Connection Failed to be Established"), so
+ * connection attempts from all links go through this queue.
+ */
+let connectQueue: Promise<unknown> = Promise.resolve();
+let connectsPending = 0;
+/** Called when the last queued connection attempt settles; the scanner uses it to resume scanning. */
+let onConnectQueueIdle: (() => void) | undefined;
+function serializedConnect<T>(task: () => Promise<T>): Promise<T> {
+  connectsPending += 1;
+  const run = connectQueue.then(task, task);
+  connectQueue = run.catch(() => undefined).then(() => {
+    connectsPending -= 1;
+    if (connectsPending === 0) {
+      onConnectQueueIdle?.();
+    }
+  });
+  return run;
+}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -38,6 +75,8 @@ export class PoplightScanner extends EventEmitter {
   private started = false;
   private readonly seen = new Map<string, Peripheral>();
   private readonly noble: Noble;
+  /** Pass to `PoplightLink` so it enables notifications in a way this binding can handle. */
+  readonly hciSocket: boolean;
 
   constructor(
     private readonly log: Logging,
@@ -45,6 +84,7 @@ export class PoplightScanner extends EventEmitter {
   ) {
     super();
     this.noble = withBindings(bindings as 'default');
+    this.hciSocket = usesHciSocket(bindings);
   }
 
   async start(): Promise<void> {
@@ -70,6 +110,9 @@ export class PoplightScanner extends EventEmitter {
         void this.scan();
       }
     });
+    // The HCI binding turns scanning off to establish a connection and never turns it back on,
+    // so a second light would stay undiscovered. Resume once all pending attempts have settled.
+    onConnectQueueIdle = () => void this.scan();
     this.log.info('Waiting for Bluetooth…');
     await noble.waitForPoweredOnAsync();
     await this.scan();
@@ -80,10 +123,14 @@ export class PoplightScanner extends EventEmitter {
       // A previous process may have left the adapter scanning; the HCI binding then fails to
       // set scan parameters with EIO. Clearing first makes start reliable on Linux.
       await this.noble.stopScanningAsync().catch(() => undefined);
-      await this.noble.startScanningAsync([], false);
+      // allowDuplicates: the name only travels in the scan response. With duplicates filtered,
+      // noble reports a peripheral once, and if that report happened to be built from two bare
+      // ADV_IND packets (scan response lost) the light stays nameless and invisible for the rest
+      // of the session. Every report is cheap to filter here, so take them all.
+      await this.noble.startScanningAsync([], true);
       this.log.debug('Scanning for POP_Light');
     } catch (error) {
-      this.log.warn(`Scan failed: ${(error as Error).message}`);
+      this.log.warn(`Scan failed: ${errorMessage(error)}`);
     }
   }
 
@@ -119,6 +166,7 @@ export class PoplightLink extends EventEmitter {
     public peripheral: Peripheral,
     private readonly log: Logging,
     private readonly label: string,
+    private readonly hciSocket: boolean = usesHciSocket('default'),
   ) {
     super();
   }
@@ -145,28 +193,34 @@ export class PoplightLink extends EventEmitter {
 
   private async doConnect(): Promise<void> {
     const p = this.peripheral;
-    this.log.debug(`${this.label}: connecting (attempt ${this.attempts + 1})`);
     try {
-      await withTimeout(p.connectAsync(), CONNECT_TIMEOUT_MS, 'connect');
-      this.log.debug(`${this.label}: link up, discovering FFB0`);
-      const { characteristics } = await withTimeout(
-        p.discoverSomeServicesAndCharacteristicsAsync(
-          [SERVICE_UUID],
-          [COMMAND_CHARACTERISTIC_UUID, STATUS_CHARACTERISTIC_UUID],
-        ),
-        DISCOVER_TIMEOUT_MS,
-        'service discovery',
-      );
-      this.command = characteristics.find((c) => c.uuid === COMMAND_CHARACTERISTIC_UUID);
-      this.status = characteristics.find((c) => c.uuid === STATUS_CHARACTERISTIC_UUID);
-      if (!this.command) {
-        throw new Error('FFB1 characteristic not found');
-      }
-      if (this.status) {
-        this.status.removeAllListeners('data');
-        this.status.on('data', (data: Buffer) => this.emit('status', data));
-        await this.status.subscribeAsync();
-      }
+      await serializedConnect(async () => {
+        if (this.closed) {
+          throw new Error('link closed');
+        }
+        this.log.debug(`${this.label}: connecting (attempt ${this.attempts + 1})`);
+        await withTimeout(p.connectAsync(), CONNECT_TIMEOUT_MS, 'connect');
+        this.log.debug(`${this.label}: link up, discovering FFB0`);
+        const { characteristics } = await withTimeout(
+          p.discoverSomeServicesAndCharacteristicsAsync(
+            [SERVICE_UUID],
+            [COMMAND_CHARACTERISTIC_UUID, STATUS_CHARACTERISTIC_UUID],
+          ),
+          DISCOVER_TIMEOUT_MS,
+          'service discovery',
+        );
+        this.command = characteristics.find((c) => c.uuid === COMMAND_CHARACTERISTIC_UUID);
+        this.status = characteristics.find((c) => c.uuid === STATUS_CHARACTERISTIC_UUID);
+        if (!this.command) {
+          throw new Error('FFB1 characteristic not found');
+        }
+        if (this.status) {
+          this.status.removeAllListeners('data');
+          this.status.on('data', (data: Buffer) => this.emit('status', data));
+          this.log.debug(`${this.label}: enabling FFB2 notifications`);
+          await withTimeout(this.enableNotifications(this.status), SUBSCRIBE_TIMEOUT_MS, 'notification setup');
+        }
+      });
       p.removeAllListeners('disconnect');
       p.once('disconnect', (reason?: string) => this.handleDisconnect(reason));
       this.connected = true;
@@ -176,15 +230,37 @@ export class PoplightLink extends EventEmitter {
     } catch (error) {
       this.attempts += 1;
       this.connected = false;
-      this.log.warn(`${this.label}: connect failed: ${(error as Error).message}`);
-      try {
-        await p.disconnectAsync();
-      } catch {
-        // ignore
-      }
+      this.log.warn(`${this.label}: connect failed: ${errorMessage(error)}`);
+      // noble never resolves a disconnect for a link that was not fully established, so do not
+      // let this await pin the link in "connecting" forever.
+      await withTimeout(p.disconnectAsync(), DISCONNECT_TIMEOUT_MS, 'disconnect').catch(() => undefined);
       this.scheduleReconnect();
       throw error;
     }
+  }
+
+  /**
+   * Turn on FFB2 notifications.
+   *
+   * noble's HCI binding implements `subscribe` by locating the Client Characteristic
+   * Configuration descriptor with an ATT Read By Type request. The Poplight answers that request
+   * with a malformed response (it reports the descriptor handle with a zero-length value), which
+   * makes noble throw or hang. Discovering the descriptor with Find Information and writing
+   * 0x0001 to it directly sidesteps the broken request. CoreBluetooth and BlueZ refuse direct
+   * writes to that descriptor and handle the quirk themselves, so those bindings keep using
+   * `subscribe`.
+   */
+  private async enableNotifications(characteristic: Characteristic): Promise<void> {
+    if (this.hciSocket) {
+      const descriptors = await characteristic.discoverDescriptorsAsync();
+      const cccd = descriptors.find((d) => d.uuid === CCCD_UUID);
+      if (cccd) {
+        await cccd.writeValueAsync(Buffer.from([0x01, 0x00]));
+        return;
+      }
+      this.log.debug(`${this.label}: no CCCD found, falling back to subscribe`);
+    }
+    await characteristic.subscribeAsync();
   }
 
   private handleDisconnect(reason?: string): void {
@@ -232,10 +308,6 @@ export class PoplightLink extends EventEmitter {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;
     }
-    try {
-      await this.peripheral.disconnectAsync();
-    } catch {
-      // ignore
-    }
+    await withTimeout(this.peripheral.disconnectAsync(), DISCONNECT_TIMEOUT_MS, 'disconnect').catch(() => undefined);
   }
 }

@@ -72,7 +72,9 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     try {
       await this.scanner.start();
     } catch (error) {
-      this.log.error(`Bluetooth unavailable: ${(error as Error).message}`);
+      this.log.warn(
+        `Bluetooth not ready: ${(error as Error).message}. Scanning will start once the adapter powers on.`,
+      );
     }
   }
 
@@ -150,7 +152,7 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     }
     this.ensureSensors(id, this.handlers.get(id)!);
 
-    const link = new PoplightLink(peripheral, this.log, accessory.context.name);
+    const link = new PoplightLink(peripheral, this.log, accessory.context.name, this.scanner?.hciSocket);
     link.on('stale', () => void this.scanner?.rescan(id));
     this.links.set(id, link);
     this.handlers.get(id)!.attach(link);

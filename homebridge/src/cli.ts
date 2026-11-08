@@ -49,7 +49,7 @@ async function findLight(id: string | undefined, timeoutMs: number): Promise<Per
       void noble.stopScanningAsync();
       resolve(p);
     });
-    void noble.stopScanningAsync().catch(() => undefined).then(() => noble.startScanningAsync([], false));
+    void noble.stopScanningAsync().catch(() => undefined).then(() => noble.startScanningAsync([], true));
   });
 }
 
@@ -63,7 +63,7 @@ async function scan(): Promise<void> {
     }
   });
   await noble.stopScanningAsync().catch(() => undefined);
-  await noble.startScanningAsync([], false);
+  await noble.startScanningAsync([], true);
   await new Promise((r) => setTimeout(r, 10_000));
   await noble.stopScanningAsync();
   if (seen.size === 0) {
