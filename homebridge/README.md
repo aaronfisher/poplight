@@ -63,23 +63,38 @@ cd homebridge && npm install && npm run build && npm link
   the threshold. Turn on notifications for it in Home to get a push alert, or use it in
   automations. Turning either option off removes the tiles on the next restart.
 
-**Raspberry Pi (Zero 2 W or newer) in one step**, on a fresh Raspberry Pi OS Lite with SSH:
+**Raspberry Pi in one step**, on a fresh Raspberry Pi OS Lite with SSH:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/aaronfisher/poplight/main/homebridge/scripts/pi-install.sh | sudo bash
 ```
 
 It installs Homebridge, builds and installs this plugin, grants Node raw Bluetooth access,
-stops `bluetoothd` so the HCI binding owns the adapter, and adds the Poplight platform to
-`config.json`. Re-run it to update. Then open `http://<pi>:8581` and pair the bridge in Home.
+stops `bluetoothd` so the HCI binding owns the adapter (and installs a small unit that unblocks
+and powers the adapter on whenever it appears), and adds the Poplight platform to `config.json`.
+Re-run it to update. Then open `http://<pi>:8581` and pair the bridge in Home.
 
-**Radio note (tested 2026-11-06):** a Raspberry Pi Zero 2 W's onboard Bluetooth 4.2 radio never
-received a single advertisement from a Poplight, even from one foot away, while a Mac heard
-both lights from 15 feet. The lights appear to use Bluetooth 5 advertising that a 4.2
-controller cannot see. Use a Bluetooth 5 USB dongle on the Pi (TP-Link UB500 / Realtek
-RTL8761BU works out of the box on Raspberry Pi OS; a micro-USB OTG adapter is needed on a
-Zero) and disable the onboard radio with `dtoverlay=disable-bt` in `/boot/firmware/config.txt`
-so the dongle becomes `hci0`. Pi 4/5 onboard radios are Bluetooth 5 and should be fine.
+**Use a Bluetooth 5 dongle (tested 2026-11-07).** The onboard Bluetooth 4.x radios of a Pi
+Zero 2 W and a Pi 3 Model B never received a single advertisement from a Poplight, even from one
+foot away, while hearing dozens of other devices. A TP-Link UB500 (Realtek RTL8761BU) on the
+same Pi 3 B hears both lights from 15 feet at -75 to -86 dBm and runs them reliably. The
+Realtek firmware ships with Raspberry Pi OS, so the dongle works as soon as it is plugged in.
+Then:
+
+1. Add `dtoverlay=disable-bt` to `/boot/firmware/config.txt` so the dongle becomes `hci0`, and
+   reboot. (If `lsusb` shows no devices at all, check for a leftover `dtoverlay=dwc2` line or
+   `modules-load=dwc2,g_ether` in `cmdline.txt` from a USB-gadget setup: on a Pi 3 those put the
+   single USB controller in peripheral mode and switch every port off.)
+2. The installer's `bt-adapter-up@hci0` unit handles the rest (`rfkill unblock` and
+   `hciconfig hci0 up`); a freshly plugged dongle otherwise stays soft-blocked and noble reports
+   "Timeout waiting for Noble to be powered on".
+
+Pi 4/5 onboard radios are Bluetooth 5 and should be fine, though untested.
+
+**If a light goes quiet:** after an abrupt link loss (the Pi rebooted or the adapter was reset
+mid-connection) a Poplight has been seen to stop advertising until its power button is pressed
+once or it is power-cycled. Symptoms are a tile that reports "No Response" and no "Found
+POPLIGHT" line in the Homebridge log.
 
 Running on a Synology NAS with a USB dongle is possible in theory but blocked in practice on
 most models (no Bluetooth kernel modules); see [docs/synology.md](docs/synology.md).

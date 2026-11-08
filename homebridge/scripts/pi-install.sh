@@ -60,16 +60,40 @@ rm -f "$SRC_DIR/homebridge/$tarball"
 echo "==> Bluetooth: raw HCI access for the Homebridge service, adapter released from bluetoothd"
 # File capabilities on the node binary get wiped by hb-service's ownership reset on every start,
 # so grant the capabilities to the service via systemd instead (ambient caps are inherited by node).
+# With bluetoothd disabled nothing powers the adapter on, and a freshly plugged USB dongle starts
+# soft-blocked by rfkill. This unit runs whenever hci0 appears (boot or hot-plug) and fixes both.
+cat >/etc/systemd/system/bt-adapter-up@.service <<'UNIT'
+[Unit]
+Description=Unblock and power on Bluetooth adapter %i (bluetoothd is disabled)
+BindsTo=sys-subsystem-bluetooth-devices-%i.device
+After=sys-subsystem-bluetooth-devices-%i.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=-/usr/sbin/rfkill unblock bluetooth
+ExecStart=/usr/bin/hciconfig %i up
+
+[Install]
+WantedBy=sys-subsystem-bluetooth-devices-%i.device
+UNIT
 mkdir -p /etc/systemd/system/homebridge.service.d
 cat >/etc/systemd/system/homebridge.service.d/bluetooth.conf <<'UNIT'
+[Unit]
+Wants=bt-adapter-up@hci0.service
+After=bt-adapter-up@hci0.service
+
 [Service]
 # Reset the adapter so a scan left running by a previous process cannot wedge the HCI binding.
+ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
 ExecStartPre=-/usr/bin/hciconfig hci0 reset
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
 UNIT
 systemctl daemon-reload
+systemctl enable bt-adapter-up@hci0.service >/dev/null 2>&1 || true
 systemctl disable --now bluetooth >/dev/null 2>&1 || true
+systemctl disable hciuart >/dev/null 2>&1 || true
 rfkill unblock bluetooth 2>/dev/null || true
 hciconfig hci0 up 2>/dev/null || true
 

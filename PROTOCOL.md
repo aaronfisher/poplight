@@ -80,4 +80,20 @@ three local patches for iOS Mach-O input on Dart 3.11; the key pseudo-code lives
 ## Quirks
 
 - Grouping in the official app is app-side fan-out (each light gets its own write).
-- Reconnect behaviour, advertising while connected, sleep/timeout: _unknown_
+- The light stops advertising while a central is connected and resumes a few seconds after a
+  clean disconnect. After an abrupt link loss (central reset or powered off mid-connection) it
+  has been seen to stay silent until its power button is pressed or it is power-cycled.
+- **Malformed CCCD lookup reply.** An ATT *Read By Type* request for UUID `2902` over the FFB2
+  characteristic's handle range (the way noble's Linux HCI binding locates the Client
+  Characteristic Configuration descriptor before subscribing) is answered with a *Read By Type
+  Response* whose attribute-data length is 2: it names the descriptor handle (`0x001f`) but
+  carries **no value bytes**. Spec-conforming parsers expect 4 bytes per entry and either throw
+  or wait forever. Discover the descriptor with *Find Information* (`0x04`) instead and write
+  `01 00` to it directly; CoreBluetooth and BlueZ already do this internally.
+- Handle layout seen on hardware: FFB2 declaration `0x001d`, value `0x001e`, CCCD `0x001f`
+  (last attribute of the FFB0 service).
+- Right after connecting, the light asks for a connection parameter update (interval 15 ms,
+  supervision timeout 6 s) through an L2CAP signalling request; accept it.
+- Advertising uses legacy PDUs on LE 1M at a low duty cycle; weak Bluetooth 4.x receivers
+  (Raspberry Pi Zero 2 W / Pi 3 B onboard radios) never heard the lights at all while a
+  Bluetooth 5 dongle 15 ft away sees them at -75 to -86 dBm.
