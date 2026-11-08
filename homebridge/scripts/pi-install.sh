@@ -85,8 +85,10 @@ After=bt-adapter-up@hci0.service
 
 [Service]
 # Reset the adapter so a scan left running by a previous process cannot wedge the HCI binding.
+# If the reset fails (controller still tearing down links) the adapter stays DOWN and noble
+# never powers on, so follow it with an explicit up.
 ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
-ExecStartPre=-/usr/bin/hciconfig hci0 reset
+ExecStartPre=-/bin/sh -c 'hciconfig hci0 reset; sleep 1; hciconfig hci0 up'
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
 UNIT

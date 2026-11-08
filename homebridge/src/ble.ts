@@ -114,7 +114,22 @@ export class PoplightScanner extends EventEmitter {
     // so a second light would stay undiscovered. Resume once all pending attempts have settled.
     onConnectQueueIdle = () => void this.scan();
     this.log.info('Waiting for Bluetooth…');
-    await noble.waitForPoweredOnAsync();
+    try {
+      await noble.waitForPoweredOnAsync();
+    } catch (error) {
+      // The adapter may come up later (rfkill, a slow USB dongle, a failed reset). noble does
+      // not always emit stateChange for that, so poll the state until it does.
+      this.log.warn(`Bluetooth not ready: ${errorMessage(error)}. Will keep checking.`);
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          if (noble.state === 'poweredOn') {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 5_000);
+      });
+      this.log.info('Bluetooth is up');
+    }
     await this.scan();
   }
 

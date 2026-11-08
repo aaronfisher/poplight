@@ -69,13 +69,7 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
 
     this.scanner = new PoplightScanner(this.log, this.config.bindings ?? 'default');
     this.scanner.on('poplight', (peripheral: Peripheral) => this.handleDiscovered(peripheral));
-    try {
-      await this.scanner.start();
-    } catch (error) {
-      this.log.warn(
-        `Bluetooth not ready: ${(error as Error).message}. Scanning will start once the adapter powers on.`,
-      );
-    }
+    await this.scanner.start();
   }
 
   private sensorEnabled(kind: SensorKind): boolean {
