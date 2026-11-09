@@ -85,25 +85,28 @@ WantedBy=sys-subsystem-bluetooth-devices-%i.device
 UNIT
 mkdir -p /etc/systemd/system/homebridge.service.d
 cat >/etc/systemd/system/homebridge.service.d/bluetooth.conf <<'UNIT'
-[Unit]
-Wants=bt-adapter-up@hci0.service
-After=bt-adapter-up@hci0.service
-
 [Service]
-# Reset the adapter so a scan left running by a previous process cannot wedge the HCI binding.
-# If the reset fails (controller still tearing down links) the adapter stays DOWN and noble
-# never powers on, so follow it with an explicit up.
+# Cycle every adapter down and up so state left by a previous process (a running scan, a pending
+# connection) cannot wedge the HCI binding, and so noble finds an adapter that is UP.
 ExecStartPre=-/usr/sbin/rfkill unblock bluetooth
-ExecStartPre=-/bin/sh -c 'hciconfig hci0 down; sleep 1; hciconfig hci0 up'
+ExecStartPre=-/bin/sh -c 'for h in /sys/class/bluetooth/hci*; do h=$(basename $h); hciconfig $h down; sleep 1; hciconfig $h up; done'
 AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_FOWNER CAP_SETUID CAP_SETGID CAP_KILL
 UNIT
 systemctl daemon-reload
-systemctl enable bt-adapter-up@hci0.service >/dev/null 2>&1 || true
+# udev: power on whichever adapter appears (the dongle re-enumerates as hci1 after a firmware
+# crash), and restart Homebridge if one appears while it is running, since noble stays bound to
+# the adapter it started with.
+cat >/etc/udev/rules.d/90-poplight-bt-adapter.rules <<'RULE'
+ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bt-adapter-up@%k.service"
+ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", RUN+="/bin/systemctl --no-block try-restart homebridge.service"
+RULE
+systemctl disable bt-adapter-up@hci0.service >/dev/null 2>&1 || true
+udevadm control --reload-rules
 systemctl disable --now bluetooth >/dev/null 2>&1 || true
 systemctl disable hciuart >/dev/null 2>&1 || true
 rfkill unblock bluetooth 2>/dev/null || true
-hciconfig hci0 up 2>/dev/null || true
+for h in /sys/class/bluetooth/hci*; do hciconfig "$(basename "$h")" up 2>/dev/null || true; done
 
 echo "==> config.json platform block"
 "$HB_NODE" - "$HB_DIR/config.json" <<'JS'
