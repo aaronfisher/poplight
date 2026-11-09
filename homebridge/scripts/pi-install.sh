@@ -6,9 +6,14 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/aaronfisher/poplight/main/homebridge/scripts/pi-install.sh | sudo bash
 # or, from a clone:   sudo ./scripts/pi-install.sh
+#
+# To install a branch instead of main (for testing a fix), fetch the script from that branch
+# and name it in BRANCH:
+#   curl -fsSL https://raw.githubusercontent.com/aaronfisher/poplight/<branch>/homebridge/scripts/pi-install.sh | sudo BRANCH=<branch> bash
 set -euo pipefail
 
 REPO_URL=${REPO_URL:-https://github.com/aaronfisher/poplight.git}
+BRANCH=${BRANCH:-main}
 SRC_DIR=${SRC_DIR:-/opt/poplight}
 HB_DIR=/var/lib/homebridge
 HB_NODE=/opt/homebridge/bin/node
@@ -38,11 +43,12 @@ if [[ ! -x "$HB_NODE" ]]; then
 fi
 echo "    Homebridge node: $($HB_NODE --version)"
 
-echo "==> fetching plugin source into $SRC_DIR"
+echo "==> fetching plugin source ($BRANCH) into $SRC_DIR"
 if [[ -d "$SRC_DIR/.git" ]]; then
-  git -C "$SRC_DIR" pull -q
+  git -C "$SRC_DIR" fetch -q origin "$BRANCH"
+  git -C "$SRC_DIR" checkout -q -B "$BRANCH" "origin/$BRANCH"
 else
-  git clone -q "$REPO_URL" "$SRC_DIR"
+  git clone -q --branch "$BRANCH" "$REPO_URL" "$SRC_DIR"
 fi
 
 echo "==> building plugin"

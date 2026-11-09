@@ -26,6 +26,8 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
   private readonly sensorAccessories = new Map<string, PlatformAccessory<SensorContext>>(); // key: `${id}:${kind}`
   private readonly sensors = new Map<string, BatterySensorAccessory>();
   private scanner?: PoplightScanner;
+  /** Lights not in config while auto-discover is off; logged once, not per advertisement. */
+  private readonly ignored = new Set<string>();
 
   constructor(
     public readonly log: Logging,
@@ -113,13 +115,21 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     const id = peripheral.id;
     const configured = this.configuredName(id);
     if (!configured && this.config.autoDiscover === false) {
-      this.log.info(`Ignoring ${id}: not in config and auto-discover is off`);
+      if (!this.ignored.has(id)) {
+        this.ignored.add(id);
+        this.log.info(`Ignoring ${id}: not in config and auto-discover is off`);
+      }
       return;
     }
 
     const existingLink = this.links.get(id);
     if (existingLink) {
-      existingLink.replacePeripheral(peripheral);
+      // A known light heard again: nothing to do while connected; otherwise it is back after
+      // going out of range or a power cycle, so reconnect to the fresh peripheral now rather
+      // than waiting out the backoff. The link decides whether this advertisement warrants it.
+      if (!existingLink.connected && existingLink.replacePeripheral(peripheral)) {
+        this.log.info(`${this.accessories.get(id)?.context.name ?? id}: back in range`);
+      }
       return;
     }
 
@@ -146,8 +156,14 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     }
     this.ensureSensors(id, this.handlers.get(id)!);
 
+    this.log.info(`Found ${name} (${id}, ${peripheral.rssi} dBm)`);
     const link = new PoplightLink(peripheral, this.log, accessory.context.name, this.scanner?.hciSocket);
-    link.on('stale', () => void this.scanner?.rescan(id));
+    // noble stops scanning to connect and never resumes it, so keep the radio listening after
+    // every connection event: for lights still to be found, and for this one if it drops.
+    const resume = () => this.scanner?.ensureScanning();
+    link.on('connected', resume);
+    link.on('disconnected', resume);
+    link.on('connectFailed', resume);
     this.links.set(id, link);
     this.handlers.get(id)!.attach(link);
   }
