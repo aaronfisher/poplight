@@ -123,7 +123,12 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
 
     const existingLink = this.links.get(id);
     if (existingLink) {
-      existingLink.replacePeripheral(peripheral);
+      // A known light heard again: nothing to do while connected; otherwise it is back after
+      // going out of range or a battery swap, so reconnect to the fresh peripheral now.
+      if (!existingLink.connected) {
+        this.log.info(`${this.accessories.get(id)?.context.name ?? id}: back in range`);
+        existingLink.replacePeripheral(peripheral);
+      }
       return;
     }
 
@@ -150,8 +155,14 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     }
     this.ensureSensors(id, this.handlers.get(id)!);
 
+    this.log.info(`Found ${name} (${id}, ${peripheral.rssi} dBm)`);
     const link = new PoplightLink(peripheral, this.log, accessory.context.name);
-    link.on('stale', () => void this.scanner?.rescan(id));
+    // noble stops scanning to connect and never resumes it, so keep the radio listening after
+    // every connection event: for lights still to be found, and for this one if it drops.
+    const resume = () => this.scanner?.ensureScanning();
+    link.on('connected', resume);
+    link.on('disconnected', resume);
+    link.on('connectFailed', resume);
     this.links.set(id, link);
     this.handlers.get(id)!.attach(link);
   }
