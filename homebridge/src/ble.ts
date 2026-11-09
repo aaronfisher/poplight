@@ -20,6 +20,8 @@ const SUBSCRIBE_TIMEOUT_MS = 10_000;
 const DISCONNECT_TIMEOUT_MS = 5_000;
 const SCAN_START_TIMEOUT_MS = 10_000;
 const SCAN_DEBOUNCE_MS = 1_000;
+/** Spacing between retries when the controller refuses to start scanning. */
+const SCAN_RETRY_MS = 10_000;
 /** Minimum spacing between connection attempts triggered by hearing a light advertise. */
 const REHEARD_MIN_INTERVAL_MS = 5_000;
 const CCCD_UUID = '2902';
@@ -84,6 +86,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<
 export class PoplightScanner extends EventEmitter {
   private started = false;
   private scanTimer?: NodeJS.Timeout;
+  private scanFailures = 0;
   private readonly noble: Noble;
   /** Pass to `PoplightLink` so it enables notifications in a way this binding can handle. */
   readonly hciSocket: boolean;
@@ -153,25 +156,34 @@ export class PoplightScanner extends EventEmitter {
       // of the session. Every report is cheap to filter, so take them all; this is also what
       // lets a known light be heard again after a power cycle.
       await withTimeout(this.noble.startScanningAsync([], true), SCAN_START_TIMEOUT_MS, 'scan start');
+      this.scanFailures = 0;
       this.log.debug('Scanning for POP_Light');
     } catch (error) {
-      this.log.warn(`Scan failed: ${errorMessage(error)}`);
+      // Seen on Linux when the kernel has an extended scan of its own running (legacy scan
+      // commands are then disallowed) or the controller is wedged. Nothing else would ever
+      // start scanning again, so keep trying; the service's adapter reset on restart clears it.
+      this.scanFailures += 1;
+      this.log.warn(`Scan failed: ${errorMessage(error)}. Retrying in ${SCAN_RETRY_MS / 1000}s`);
+      if (this.scanFailures === 3 && this.hciSocket) {
+        this.log.warn('Scanning keeps failing. If this persists, restart Homebridge so the adapter is reset.');
+      }
+      this.ensureScanning(SCAN_RETRY_MS);
     }
   }
 
   /**
    * Ask for scanning to be running shortly. noble stops scanning whenever it connects to a
    * peripheral and never resumes on its own, so this is called after every connection event.
-   * Calls within a second are coalesced.
+   * Calls within a second are coalesced; a pending request is never delayed further.
    */
-  ensureScanning(): void {
+  ensureScanning(delayMs: number = SCAN_DEBOUNCE_MS): void {
     if (!this.started || this.scanTimer) {
       return;
     }
     this.scanTimer = setTimeout(() => {
       this.scanTimer = undefined;
       void this.scan();
-    }, SCAN_DEBOUNCE_MS);
+    }, delayMs);
   }
 }
 
