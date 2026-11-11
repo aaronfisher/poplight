@@ -98,8 +98,10 @@ systemctl daemon-reload
 # crash), and restart Homebridge if one appears while it is running, since noble stays bound to
 # the adapter it started with.
 cat >/etc/udev/rules.d/90-poplight-bt-adapter.rules <<'RULE'
-ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bt-adapter-up@%k.service"
-ACTION=="add", SUBSYSTEM=="bluetooth", KERNEL=="hci[0-9]*", RUN+="/bin/systemctl --no-block try-restart homebridge.service"
+# Adapters only: connection devices (hci0:16) share the subsystem and the hci* name; DEVTYPE
+# tells them apart. Without it every new connection restarts Homebridge, in a loop.
+ACTION=="add", SUBSYSTEM=="bluetooth", ENV{DEVTYPE}=="host", KERNEL=="hci[0-9]*", TAG+="systemd", ENV{SYSTEMD_WANTS}+="bt-adapter-up@%k.service"
+ACTION=="add", SUBSYSTEM=="bluetooth", ENV{DEVTYPE}=="host", KERNEL=="hci[0-9]*", RUN+="/bin/systemctl --no-block try-restart homebridge.service"
 RULE
 systemctl disable bt-adapter-up@hci0.service >/dev/null 2>&1 || true
 udevadm control --reload-rules
