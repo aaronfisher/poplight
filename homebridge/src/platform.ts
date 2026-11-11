@@ -7,6 +7,11 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 
 export interface PoplightConfig extends PlatformConfig {
   autoDiscover?: boolean;
+  /** 'onDemand' (default) connects per command; 'persistent' holds the link (costs the lights battery). */
+  connection?: 'onDemand' | 'persistent';
+  /** On-demand: seconds the link is kept after the last command. */
+  idleDisconnectSeconds?: number;
+  /** Default 60 on demand (each poll is a short connection), 5 when persistent. */
   batteryPollMinutes?: number;
   lowBatteryThreshold?: number;
   batterySensor?: boolean;
@@ -39,6 +44,18 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     api.on('shutdown', () => void this.shutdown());
   }
 
+  get onDemand(): boolean {
+    return this.config.connection !== 'persistent';
+  }
+
+  get batteryPollMinutes(): number {
+    return this.config.batteryPollMinutes ?? (this.onDemand ? 60 : 5);
+  }
+
+  private get idleMs(): number {
+    return Math.max(5, this.config.idleDisconnectSeconds ?? 30) * 1000;
+  }
+
   /** Called by Homebridge for every accessory restored from cache, before didFinishLaunching. */
   configureAccessory(accessory: PlatformAccessory): void {
     const context = accessory.context as Partial<SensorContext>;
@@ -69,6 +86,11 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
       this.ensureSensors(id, handler);
     }
 
+    this.log.info(
+      this.onDemand
+        ? `Connecting on demand (idle after ${this.idleMs / 1000}s, battery every ${this.batteryPollMinutes} min)`
+        : `Holding a persistent connection to each light (battery every ${this.batteryPollMinutes} min)`,
+    );
     this.scanner = new PoplightScanner(this.log, this.config.bindings ?? 'default');
     this.scanner.on('poplight', (peripheral: Peripheral) => this.handleDiscovered(peripheral));
     await this.scanner.start();
@@ -157,7 +179,11 @@ export class PoplightPlatform implements DynamicPlatformPlugin {
     this.ensureSensors(id, this.handlers.get(id)!);
 
     this.log.info(`Found ${name} (${id}, ${peripheral.rssi} dBm)`);
-    const link = new PoplightLink(peripheral, this.log, accessory.context.name, this.scanner?.hciSocket);
+    const link = new PoplightLink(peripheral, this.log, accessory.context.name, {
+      hciSocket: this.scanner?.hciSocket,
+      persistent: !this.onDemand,
+      idleMs: this.idleMs,
+    });
     // noble stops scanning to connect and never resumes it, so keep the radio listening after
     // every connection event: for lights still to be found, and for this one if it drops.
     const resume = () => this.scanner?.ensureScanning();

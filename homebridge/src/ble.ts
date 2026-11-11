@@ -18,12 +18,16 @@ const CONNECT_TIMEOUT_MS = 20_000;
 const DISCOVER_TIMEOUT_MS = 20_000;
 const SUBSCRIBE_TIMEOUT_MS = 10_000;
 const DISCONNECT_TIMEOUT_MS = 5_000;
+const WRITE_TIMEOUT_MS = 5_000;
 const SCAN_START_TIMEOUT_MS = 10_000;
 const SCAN_DEBOUNCE_MS = 1_000;
 /** Spacing between retries when the controller refuses to start scanning. */
 const SCAN_RETRY_MS = 10_000;
 /** Minimum spacing between connection attempts triggered by hearing a light advertise. */
 const REHEARD_MIN_INTERVAL_MS = 5_000;
+/** On-demand links: how long to keep retrying a connection while a command is waiting. */
+const ON_DEMAND_DEADLINE_MS = 30_000;
+const DEFAULT_IDLE_MS = 30_000;
 const CCCD_UUID = '2902';
 
 /**
@@ -59,6 +63,10 @@ function serializedConnect<T>(task: () => Promise<T>): Promise<T> {
     }
   });
   return run;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
@@ -194,7 +202,31 @@ export interface LinkEvents {
   status: (data: Buffer) => void;
 }
 
-/** One light's connection: discovers FFB1/FFB2, writes commands, reconnects when dropped. */
+export interface LinkOptions {
+  /** See `usesHciSocket`. Defaults to what the platform's default binding uses. */
+  hciSocket?: boolean;
+  /**
+   * true (default): hold the connection and reconnect whenever it drops.
+   * false: on demand. Connect when a command needs it and disconnect after `idleMs` without one.
+   * The light asks for a 15 ms connection interval with no latency, so a held connection wakes
+   * its radio about 67 times a second and drains the battery even while the lamp is off.
+   */
+  persistent?: boolean;
+  /** On-demand only: how long the connection is kept after the last command. */
+  idleMs?: number;
+}
+
+export interface SendOptions {
+  /** On-demand only: keep the connection at least this long after the command (default `idleMs`). */
+  holdMs?: number;
+  /** On-demand only: retry the connection until the deadline (default) or try just once. */
+  retry?: boolean;
+}
+
+/**
+ * One light's connection: discovers FFB1/FFB2 and writes commands. A persistent link reconnects
+ * when dropped; an on-demand link connects for a command and lets go when idle.
+ */
 export class PoplightLink extends EventEmitter {
   private command?: Characteristic;
   private status?: Characteristic;
@@ -204,14 +236,30 @@ export class PoplightLink extends EventEmitter {
   private lastAttemptAt = 0;
   private closed = false;
   public connected = false;
+  private readonly hciSocket: boolean;
+  private readonly persistent: boolean;
+  private readonly idleMs: number;
+  private idleTimer?: NodeJS.Timeout;
+  private idleDeadline = 0;
+  /** Commands between "started" and "written"; the idle timer never fires under one. */
+  private inFlight = 0;
+  private ensuring?: Promise<void>;
+  private releasing?: Promise<void>;
+  /** Tail of the write queue; see `send`. */
+  private writeChain: Promise<unknown> = Promise.resolve();
+  /** Peripheral instances that already carry the stray-connection listener. */
+  private readonly watched = new WeakSet<Peripheral>();
 
   constructor(
     public peripheral: Peripheral,
     private readonly log: Logging,
     private readonly label: string,
-    private readonly hciSocket: boolean = usesHciSocket('default'),
+    options: LinkOptions = {},
   ) {
     super();
+    this.hciSocket = options.hciSocket ?? usesHciSocket('default');
+    this.persistent = options.persistent ?? true;
+    this.idleMs = options.idleMs ?? DEFAULT_IDLE_MS;
   }
 
   /**
@@ -234,6 +282,9 @@ export class PoplightLink extends EventEmitter {
         previous.cancelConnect();
       }
       return false;
+    }
+    if (!this.persistent) {
+      return false; // the next command connects to the new instance
     }
     if (!this.reconnectTimer || Date.now() - this.lastAttemptAt < REHEARD_MIN_INTERVAL_MS) {
       return false;
@@ -266,10 +317,19 @@ export class PoplightLink extends EventEmitter {
         if (this.closed) {
           throw new Error('link closed');
         }
+        if (this.releasing) {
+          await this.releasing; // an idle disconnect is still completing
+        }
         p = this.peripheral;
         this.lastAttemptAt = Date.now();
-        this.log.debug(`${this.label}: connecting (attempt ${this.attempts + 1})`);
-        await withTimeout(p.connectAsync(), CONNECT_TIMEOUT_MS, 'connect');
+        this.watchForStrayConnection(p);
+        if (p.state === 'connected') {
+          // A link from an attempt that was reported as failed but completed afterwards.
+          this.log.debug(`${this.label}: adopting an existing link`);
+        } else {
+          this.log.debug(`${this.label}: connecting (attempt ${this.attempts + 1})`);
+          await withTimeout(p.connectAsync(), CONNECT_TIMEOUT_MS, 'connect');
+        }
         this.log.debug(`${this.label}: link up, discovering FFB0`);
         const { characteristics } = await withTimeout(
           p.discoverSomeServicesAndCharacteristicsAsync(
@@ -310,6 +370,26 @@ export class PoplightLink extends EventEmitter {
       this.emit('connectFailed', error);
       throw error;
     }
+  }
+
+  /**
+   * On Linux the kernel sometimes cancels noble's connection request and then completes the
+   * connection itself. noble reports the attempt as failed, and a moment later the peripheral
+   * turns up connected with nobody using it. Left alone, that link would hold the light's radio
+   * awake until the next command or poll, so drop it as soon as it appears.
+   */
+  private watchForStrayConnection(p: Peripheral): void {
+    if (this.watched.has(p)) {
+      return;
+    }
+    this.watched.add(p);
+    p.on('connect', (error?: unknown) => {
+      if (error || this.connected || this.connecting || this.closed || p !== this.peripheral) {
+        return;
+      }
+      this.log.debug(`${this.label}: dropping a connection that completed after its attempt failed`);
+      void withTimeout(p.disconnectAsync(), DISCONNECT_TIMEOUT_MS, 'disconnect').catch(() => undefined);
+    });
   }
 
   /**
@@ -361,16 +441,19 @@ export class PoplightLink extends EventEmitter {
   }
 
   private handleDisconnect(reason?: string): void {
+    const idle = this.releasing !== undefined;
     this.connected = false;
     this.command = undefined;
     this.status = undefined;
-    this.log.info(`${this.label}: disconnected${reason ? ` (${reason})` : ''}`);
-    this.emit('disconnected', reason);
+    this.clearIdleTimer();
+    this.log.info(`${this.label}: disconnected${idle ? ' (idle)' : reason ? ` (${reason})` : ''}`);
+    this.emit('disconnected', idle ? 'idle' : reason);
     this.scheduleReconnect();
   }
 
+  /** Persistent links only; an on-demand link reconnects when the next command arrives. */
   private scheduleReconnect(): void {
-    if (this.closed || this.reconnectTimer) {
+    if (this.closed || this.reconnectTimer || !this.persistent) {
       return;
     }
     const delay = Math.min(60_000, 2_000 * 2 ** Math.min(this.attempts, 5));
@@ -380,24 +463,126 @@ export class PoplightLink extends EventEmitter {
     }, delay);
   }
 
-  async send(command: Command): Promise<void> {
+  async send(command: Command, options: SendOptions = {}): Promise<void> {
     const data = encode(command);
     if (!data) {
       throw new Error('command not supported by the light');
     }
-    if (!this.connected) {
-      await this.connect();
+    this.inFlight += 1;
+    try {
+      if (!this.connected) {
+        await this.ensureConnected(options.retry ?? true);
+      }
+      // One write at a time. noble completes a write through a single per-characteristic
+      // callback slot, so a second write issued before the first finishes takes the slot over
+      // and the first promise never settles. Both bytes reach the light, but the caller hangs,
+      // and with it the idle timer of an on-demand link. The timeout covers a lost response.
+      const write = this.writeChain.then(() => {
+        if (!this.command) {
+          throw new Error('not connected');
+        }
+        const withoutResponse =
+          !wantsResponse(command) && this.command.properties.includes('writeWithoutResponse');
+        this.log.debug(`${this.label}: write ${data.toString('hex')}${withoutResponse ? '' : ' (with response)'}`);
+        return withTimeout(this.command.writeAsync(data, withoutResponse), WRITE_TIMEOUT_MS, 'write');
+      });
+      this.writeChain = write.catch(() => undefined);
+      await write;
+    } finally {
+      this.inFlight -= 1;
+      this.touch(options.holdMs ?? this.idleMs);
     }
-    if (!this.command) {
-      throw new Error('not connected');
+  }
+
+  /**
+   * Connect for a waiting command. A persistent link has its own reconnect loop, so one attempt
+   * is enough there. An on-demand link has none: the first attempt often fails on Linux (the
+   * kernel contends for the raw HCI socket), so keep trying for a while before giving up.
+   * Concurrent commands share one loop.
+   */
+  private ensureConnected(retry: boolean): Promise<void> {
+    if (this.persistent || !retry) {
+      return this.connect();
     }
-    const withoutResponse = !wantsResponse(command) && this.command.properties.includes('writeWithoutResponse');
-    this.log.debug(`${this.label}: write ${data.toString('hex')}${withoutResponse ? '' : ' (with response)'}`);
-    await this.command.writeAsync(data, withoutResponse);
+    if (!this.ensuring) {
+      this.ensuring = (async () => {
+        const deadline = Date.now() + ON_DEMAND_DEADLINE_MS;
+        let delay = 500;
+        for (;;) {
+          try {
+            await this.connect();
+            return;
+          } catch (error) {
+            if (this.closed || Date.now() + delay >= deadline) {
+              throw error;
+            }
+            await sleep(delay);
+            delay = Math.min(delay * 2, 4_000);
+          }
+        }
+      })().finally(() => {
+        this.ensuring = undefined;
+      });
+    }
+    return this.ensuring;
+  }
+
+  /** On-demand links: keep the connection for at least `holdMs` more, then let it go. */
+  private touch(holdMs: number): void {
+    if (this.persistent || this.closed) {
+      return;
+    }
+    this.idleDeadline = Math.max(this.idleDeadline, Date.now() + holdMs);
+    this.armIdleTimer();
+  }
+
+  private armIdleTimer(): void {
+    this.clearIdleTimer();
+    this.idleTimer = setTimeout(() => {
+      this.idleTimer = undefined;
+      if (this.inFlight > 0 || this.connecting) {
+        this.idleDeadline = Date.now() + 1_000;
+        this.armIdleTimer();
+        return;
+      }
+      void this.release();
+    }, Math.max(0, this.idleDeadline - Date.now()));
+  }
+
+  private clearIdleTimer(): void {
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = undefined;
+    }
+  }
+
+  /** Idle disconnect. A command arriving meanwhile waits for it to finish, then reconnects. */
+  private async release(): Promise<void> {
+    if (!this.connected || this.releasing) {
+      return;
+    }
+    const p = this.peripheral;
+    // Commands from here on must take the connect path, not write to a link that is going away.
+    this.connected = false;
+    this.command = undefined;
+    this.status = undefined;
+    this.log.debug(`${this.label}: idle, disconnecting`);
+    this.releasing = withTimeout(p.disconnectAsync(), DISCONNECT_TIMEOUT_MS, 'disconnect')
+      .catch((error) => {
+        // noble never confirmed, so handleDisconnect did not run; do its bookkeeping here.
+        this.log.debug(`${this.label}: ${errorMessage(error)}`);
+        p.removeAllListeners('disconnect');
+        this.emit('disconnected', 'idle');
+      })
+      .then(() => {
+        this.releasing = undefined;
+      });
+    await this.releasing;
   }
 
   async close(): Promise<void> {
     this.closed = true;
+    this.clearIdleTimer();
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = undefined;

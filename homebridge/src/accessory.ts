@@ -6,8 +6,18 @@ import {
   clampBrightness,
   decodeStatus,
   warmthFromMireds,
+  type Command,
   type Warmth,
 } from './protocol';
+
+/**
+ * How long a HomeKit write waits for the light before it is acknowledged anyway. HomeKit shows
+ * "No Response" after a few seconds, and an on-demand connection can take longer than that.
+ */
+const SET_GRACE_MS = 2_500;
+/** On-demand: how long a connection made only to read the battery is kept. */
+const BATTERY_HOLD_MS = 3_000;
+const PENDING = Symbol('pending');
 
 export interface PoplightContext {
   id: string;
@@ -25,6 +35,7 @@ export class PoplightAccessory {
   private readonly log: Logging;
   private pollTimer?: NodeJS.Timeout;
   private link?: PoplightLink;
+  private querying = false;
   /** Called with the mapped battery percentage whenever the light reports it. */
   public onBattery?: (percent: number) => void;
 
@@ -84,14 +95,29 @@ export class PoplightAccessory {
 
   attach(link: PoplightLink): void {
     this.link = link;
+    const onDemand = this.platform.onDemand;
     link.on('status', (data: Buffer) => this.handleStatus(data));
     link.on('connected', () => {
-      this.log.info(`${this.name}: ready`);
-      this.startPolling();
+      if (!onDemand) {
+        this.log.info(`${this.name}: ready`);
+        this.startPolling();
+      }
+      // Connected anyway, so the battery reading is free.
       void this.refreshBattery();
     });
-    link.on('disconnected', () => this.stopPolling());
-    void link.connect().catch(() => undefined);
+    link.on('disconnected', () => {
+      if (!onDemand) {
+        this.stopPolling();
+      }
+    });
+    if (onDemand) {
+      // The poll runs whether or not the link is up; each one is a short connection. The first
+      // query doubles as the check that the light is reachable.
+      this.startPolling();
+      void this.refreshBattery(true);
+    } else {
+      void link.connect().catch(() => undefined);
+    }
   }
 
   private get hap() {
@@ -103,62 +129,106 @@ export class PoplightAccessory {
     throw new this.hap.HapStatusError(this.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
   }
 
-  private async setOn(value: CharacteristicValue): Promise<void> {
-    const on = Boolean(value);
-    const ctx = this.accessory.context;
+  /**
+   * Send a command for a HomeKit write and record the new state once the light has it.
+   *
+   * With an on-demand link the light may first have to be connected, which can take longer than
+   * HomeKit waits before showing "No Response". Past a short grace period the write is
+   * acknowledged and finishes in the background; if it then fails, the tile is put back to the
+   * last confirmed state.
+   */
+  private async deliver(command: Command, apply: () => void): Promise<void> {
     if (!this.link) {
       this.fail(new Error('not discovered yet'));
     }
-    try {
-      await this.link.send({ type: 'power', on });
-      ctx.on = on;
-    } catch (error) {
-      this.fail(error);
+    const ctx = this.accessory.context;
+    const before = { on: ctx.on, brightness: ctx.brightness, warmth: ctx.warmth };
+    const settled = this.link
+      .send(command)
+      .then(apply)
+      .then(
+        () => undefined,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      );
+    const grace = new Promise<typeof PENDING>((resolve) => setTimeout(() => resolve(PENDING), SET_GRACE_MS));
+    const first = await Promise.race([settled, grace]);
+    if (first === PENDING) {
+      apply(); // show the requested state while the light is being reached
+      void settled.then((error) => {
+        if (error) {
+          this.log.warn(`${this.name}: ${error.message}`);
+          this.restore(before);
+        }
+      });
+      return;
     }
+    if (first) {
+      this.fail(first);
+    }
+  }
+
+  /** Put the cached state and the HomeKit tile back after a write that did not reach the light. */
+  private restore(before: Pick<PoplightContext, 'on' | 'brightness' | 'warmth'>): void {
+    const ctx = this.accessory.context;
+    const { Characteristic } = this.hap;
+    ctx.on = before.on;
+    ctx.brightness = before.brightness;
+    ctx.warmth = before.warmth;
+    this.light.updateCharacteristic(Characteristic.On, before.on ?? false);
+    this.light.updateCharacteristic(Characteristic.Brightness, before.brightness ?? 99);
+    this.light.updateCharacteristic(Characteristic.ColorTemperature, WARMTH_MIREDS[before.warmth ?? 'neutral']);
+  }
+
+  private async setOn(value: CharacteristicValue): Promise<void> {
+    const on = Boolean(value);
+    const ctx = this.accessory.context;
+    await this.deliver({ type: 'power', on }, () => {
+      ctx.on = on;
+    });
   }
 
   private async setBrightness(value: CharacteristicValue): Promise<void> {
     const ctx = this.accessory.context;
     const percent = Number(value);
-    if (!this.link) {
-      this.fail(new Error('not discovered yet'));
-    }
-    try {
-      if (percent <= 0) {
-        await this.link.send({ type: 'power', on: false });
+    if (percent <= 0) {
+      await this.deliver({ type: 'power', on: false }, () => {
         ctx.on = false;
-        return;
-      }
-      const clamped = clampBrightness(percent);
-      await this.link.send({ type: 'brightness', value: clamped });
+      });
+      return;
+    }
+    const clamped = clampBrightness(percent);
+    await this.deliver({ type: 'brightness', value: clamped }, () => {
       ctx.brightness = clamped;
       ctx.on = true;
-    } catch (error) {
-      this.fail(error);
-    }
+    });
   }
 
   private async setColorTemperature(value: CharacteristicValue): Promise<void> {
     const ctx = this.accessory.context;
     const warmth = warmthFromMireds(Number(value));
-    if (!this.link) {
-      this.fail(new Error('not discovered yet'));
-    }
-    try {
-      await this.link.send({ type: 'warmth', warmth });
+    await this.deliver({ type: 'warmth', warmth }, () => {
       ctx.warmth = warmth;
       // Snap HomeKit's slider to the step the light actually uses.
       this.light.updateCharacteristic(this.hap.Characteristic.ColorTemperature, WARMTH_MIREDS[warmth]);
-    } catch (error) {
-      this.fail(error);
-    }
+    });
   }
 
-  private async refreshBattery(): Promise<void> {
+  /** `retry`: keep trying to connect for a while (the startup check) instead of one attempt. */
+  private async refreshBattery(retry = false): Promise<void> {
+    if (this.querying) {
+      return; // a poll that had to connect triggers the 'connected' handler too
+    }
+    this.querying = true;
     try {
-      await this.link?.send({ type: 'queryStatus' });
+      // On demand, a poll is a single short connection: one attempt, and let go right after.
+      await this.link?.send(
+        { type: 'queryStatus' },
+        this.platform.onDemand ? { holdMs: BATTERY_HOLD_MS, retry } : {},
+      );
     } catch (error) {
       this.log.debug(`${this.name}: battery query failed: ${(error as Error).message}`);
+    } finally {
+      this.querying = false;
     }
   }
 
@@ -203,7 +273,7 @@ export class PoplightAccessory {
 
   private startPolling(): void {
     this.stopPolling();
-    const minutes = this.platform.config.batteryPollMinutes ?? 5;
+    const minutes = this.platform.batteryPollMinutes;
     this.pollTimer = setInterval(() => void this.refreshBattery(), minutes * 60_000);
   }
 

@@ -38,7 +38,9 @@ cd homebridge && npm install && npm run build && npm link
 {
   "platform": "Poplight",
   "autoDiscover": true,
-  "batteryPollMinutes": 5,
+  "connection": "onDemand",
+  "idleDisconnectSeconds": 30,
+  "batteryPollMinutes": 60,
   "lowBatteryThreshold": 25,
   "batterySensor": true,
   "lowBatterySensor": true,
@@ -51,7 +53,19 @@ cd homebridge && npm install && npm run build && npm link
 - `autoDiscover` (default `true`): add every `POP_Light` that comes into range. The id of each
   light is logged when it is found; use it in `lights` to give it a name, or set
   `autoDiscover` to `false` to add only the listed lights.
-- `batteryPollMinutes` (default 5): how often to ask each light for its battery level.
+- `connection` (default `onDemand`): how the plugin holds on to the lights.
+  - `onDemand` connects when a command is sent and disconnects after `idleDisconnectSeconds`
+    without one. The first command after idle takes one to three seconds while the light is
+    connected; HomeKit shows the new state straight away and the tile is put back if the light
+    cannot be reached. This is what keeps the lights' standby battery life.
+  - `persistent` holds a connection to every light. Response is instant, but the light asks
+    for a 15 ms connection interval with no latency, so its radio wakes about 67 times a
+    second around the clock. In testing two lights went from 100% to 50% in a day that way.
+- `idleDisconnectSeconds` (default 30, on demand only): how long the connection is kept after
+  the last command, so follow-up adjustments are instant.
+- `batteryPollMinutes` (default 60 on demand, 5 persistent): how often to ask each light for
+  its battery level. On demand each poll is a connection of a few seconds; the level is also
+  read whenever a light is connected for a command.
 - `bindings` (default `default`): Bluetooth driver. Leave it unless you run in Docker on
   Linux, where `hci` (raw socket, no BlueZ) is the reliable choice; `dbus` uses BlueZ. The HCI
   adapter index can be set with the `NOBLE_HCI_DEVICE_ID` environment variable.

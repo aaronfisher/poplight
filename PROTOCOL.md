@@ -93,7 +93,15 @@ three local patches for iOS Mach-O input on Dart 3.11; the key pseudo-code lives
 - Handle layout seen on hardware: FFB2 declaration `0x001d`, value `0x001e`, CCCD `0x001f`
   (last attribute of the FFB0 service).
 - Right after connecting, the light asks for a connection parameter update (interval 15 ms,
-  supervision timeout 6 s) through an L2CAP signalling request; accept it.
+  peripheral latency 0, supervision timeout 6 s) through an L2CAP signalling request; accept it.
+- A held connection is expensive for the light. At 15 ms with no latency its radio wakes about
+  67 times a second whether the lamp is on or off: two lights connected around the clock went
+  from 100% to 50% in 24 hours (2026-11-09/10). A central that stays up for long periods
+  should connect per command and disconnect when idle. After a clean disconnect the light
+  resumes advertising at once and accepts a new connection in one to three seconds.
+- Commands can be written back to back without waiting for each other: the light acts on
+  each write and echoes it on FFB2 in order (a battery query followed immediately by two
+  commands returns `01 09 xx` and then both echoes).
 - Advertising uses legacy PDUs on LE 1M at a low duty cycle; weak Bluetooth 4.x receivers
   (Raspberry Pi Zero 2 W / Pi 3 B onboard radios) never heard the lights at all while a
   Bluetooth 5 dongle 15 ft away sees them at -75 to -86 dBm.

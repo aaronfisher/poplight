@@ -12,12 +12,41 @@
         "type": "boolean",
         "default": true
       },
+      "connection": {
+        "title": "Connection",
+        "description": "On demand connects to a light when a command is sent and lets go after an idle period, which keeps the lights' standby battery life. The first command after idle takes a few seconds. Persistent holds a connection to every light for instant response, at a heavy cost in battery (roughly half a charge per day in testing).",
+        "type": "string",
+        "default": "onDemand",
+        "oneOf": [
+          {
+            "title": "On demand (saves the lights' batteries)",
+            "enum": [
+              "onDemand"
+            ]
+          },
+          {
+            "title": "Persistent (instant response, drains batteries)",
+            "enum": [
+              "persistent"
+            ]
+          }
+        ]
+      },
+      "idleDisconnectSeconds": {
+        "title": "Idle disconnect (seconds)",
+        "description": "On demand only: how long the connection is kept after the last command, so follow-up adjustments are instant.",
+        "type": "integer",
+        "default": 30,
+        "minimum": 5,
+        "maximum": 600
+      },
       "batteryPollMinutes": {
         "title": "Battery poll interval (minutes)",
         "type": "integer",
-        "default": 5,
         "minimum": 1,
-        "maximum": 120
+        "maximum": 1440,
+        "description": "How often to ask each light for its battery level. Defaults to 60 on demand, where each poll is a short connection, and 5 with a persistent connection. The level is also read whenever a light is connected for a command.",
+        "placeholder": 60
       },
       "lowBatteryThreshold": {
         "title": "Low battery threshold (%)",
