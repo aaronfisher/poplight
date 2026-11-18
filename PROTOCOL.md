@@ -94,6 +94,9 @@ three local patches for iOS Mach-O input on Dart 3.11; the key pseudo-code lives
   (last attribute of the FFB0 service).
 - Right after connecting, the light asks for a connection parameter update (interval 15 ms,
   peripheral latency 0, supervision timeout 6 s) through an L2CAP signalling request; accept it.
+- After a battery is inserted the light stays silent, with no advertising at all, until its
+  power button is pressed once. A light that was charged and put back but never shows up in a
+  scan is almost always this.
 - A held connection is expensive for the light. At 15 ms with no latency its radio wakes about
   67 times a second whether the lamp is on or off: two lights connected around the clock went
   from 100% to 50% in 24 hours (2026-11-09/10). A central that stays up for long periods

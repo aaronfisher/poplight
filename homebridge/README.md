@@ -108,7 +108,8 @@ Pi 4/5 onboard radios are Bluetooth 5 and should be fine, though untested.
 **If a light goes quiet:** after an abrupt link loss (the Pi rebooted or the adapter was reset
 mid-connection) a Poplight has been seen to stop advertising until its power button is pressed
 once or it is power-cycled. Symptoms are a tile that reports "No Response" and no "Found
-POPLIGHT" line in the Homebridge log.
+POPLIGHT" line in the Homebridge log. The same applies after charging: a light does not
+advertise once its battery is back in until the power button is pressed.
 
 Running on a Synology NAS with a USB dongle is possible in theory but blocked in practice on
 most models (no Bluetooth kernel modules); see [docs/synology.md](docs/synology.md).
